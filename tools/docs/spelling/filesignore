@@ -29,3 +29,4 @@ werf-giterminism.yaml
 /templates/
 /template_tests/
 /docs/internal/
+/capi/
