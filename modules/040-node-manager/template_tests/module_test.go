@@ -2055,7 +2055,6 @@ internal:
     ca: string
     key: string
     crt: string
-  machineDeployments: {}
   instancePrefix: myprefix
   clusterMasterAddresses: ["10.0.0.1:6443", "10.0.0.2:6443", "10.0.0.3:6443"]
   kubernetesCA: myclusterca
@@ -2120,29 +2119,15 @@ internal:
 				Expect(metal3Cluster.Field("spec.controlPlaneEndpoint.host").String()).To(Equal("10.0.0.1"))
 				Expect(metal3Cluster.Field("spec.controlPlaneEndpoint.port").Int()).To(Equal(int64(6443)))
 
+				// MachineTemplate and Metal3DataTemplate are rendered by node-controller from
+				// the cloud-provider CAPI template secret; Helm only renders bootstrap Secret.
 				template := f.KubernetesResource("Metal3MachineTemplate", "d8-cloud-instance-manager", "worker-50710a9d")
-				Expect(template.Exists()).To(BeTrue())
-				Expect(template.Field("metadata.annotations.checksum/instance-class").String()).To(Equal("e585233117b50ce0c574e5ee11aa4fef09f44b95464b4de4002dcf2231c457c1"), "Prevent checksum changing")
-				Expect(template.Field("spec.nodeReuse").Bool()).To(BeFalse())
-				Expect(template.Field("spec.template.spec.image.url").String()).To(Equal("http://172.22.0.10:6180/images/ubuntu-24.04.raw"))
-				Expect(template.Field("spec.template.spec.image.checksum").String()).To(Equal("4571234c4f2d812d5051282b47545a2e5a7f96d02fce77e5a16f0217741e4d49"))
-				Expect(template.Field("spec.template.spec.image.checksumType").String()).To(Equal("sha256"))
-				Expect(template.Field("spec.template.spec.image.format").String()).To(Equal("raw"))
-				Expect(template.Field("spec.template.spec.dataTemplate.apiVersion").String()).To(Equal("infrastructure.cluster.x-k8s.io/v1beta1"))
-				Expect(template.Field("spec.template.spec.dataTemplate.kind").String()).To(Equal("Metal3DataTemplate"))
-				Expect(template.Field("spec.template.spec.dataTemplate.name").String()).To(Equal("worker-50710a9d"))
-				Expect(template.Field("spec.template.spec.hostSelector.matchLabels.capm3-test").String()).To(Equal("ironic-4"))
-				Expect(template.Field("spec.template.spec.automatedCleaningMode").String()).To(Equal("disabled"))
+				Expect(template.Exists()).To(BeFalse())
 
 				dataTemplate := f.KubernetesResource("Metal3DataTemplate", "d8-cloud-instance-manager", "worker-50710a9d")
-				Expect(dataTemplate.Exists()).To(BeTrue())
-				Expect(dataTemplate.Field("metadata.annotations.checksum/instance-class").String()).To(Equal("e585233117b50ce0c574e5ee11aa4fef09f44b95464b4de4002dcf2231c457c1"), "Prevent checksum changing")
-				Expect(dataTemplate.Field("spec.clusterName").String()).To(Equal("metal3"))
-				Expect(dataTemplate.Field("spec.metaData.objectNames").String()).To(ContainSubstring("local-hostname"))
-				Expect(dataTemplate.Field("spec.metaData.objectNames").String()).To(ContainSubstring("local_hostname"))
-				Expect(dataTemplate.Field("spec.metaData.objectNames").String()).To(ContainSubstring("machine"))
+				Expect(dataTemplate.Exists()).To(BeFalse())
 
-				bootstrapSecret := f.KubernetesResource("Secret", "d8-cloud-instance-manager", "worker-50710a9d")
+				bootstrapSecret := f.KubernetesResource("Secret", "d8-cloud-instance-manager", "worker-8ced91ee")
 				Expect(bootstrapSecret.Exists()).To(BeTrue())
 				bootstrapUserDataBytes, err := base64.StdEncoding.DecodeString(bootstrapSecret.Field("data.value").String())
 				Expect(err).NotTo(HaveOccurred())
