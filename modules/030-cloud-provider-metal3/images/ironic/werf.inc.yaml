@@ -17,6 +17,6 @@ secrets:
   value: {{ .SOURCE_REPO }}
 shell:
   install:
-  - git clone --depth 1 --branch {{ $version }} $(cat /run/secrets/SOURCE_REPO)/deckhouse/3p/metal3-io/ironic-image.git /src
+  - git clone --depth 1 --branch {{ $version }} $(cat /run/secrets/SOURCE_REPO)/metal3-io/ironic-image.git /src
   - cd /src
   - rm -rf .git
