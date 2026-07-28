@@ -13,6 +13,8 @@ spec:
   {{- if $ironic.version }}
   version: {{ $ironic.version | quote }}
   {{- end }}
+  images:
+    ironic: {{ include "helm_lib_module_image" (list . "ironic") | quote }}
   {{- if $ironic.deployRamdisk }}
   deployRamdisk:
     {{- if $ironic.deployRamdisk.sshKey }}

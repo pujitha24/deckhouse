@@ -43,6 +43,8 @@ const globalValues = `
   discovery:
     kubernetesVersion: 1.34.9
     clusterUUID: cluster
+    d8SpecificNodeCountByRole:
+      master: 1
 `
 
 var _ = Describe("Module :: cloud-provider-metal3 :: helm template ::", func() {
@@ -50,6 +52,7 @@ var _ = Describe("Module :: cloud-provider-metal3 :: helm template ::", func() {
 
 	BeforeEach(func() {
 		f.ValuesSetFromYaml("global", globalValues)
+		f.ValuesSet("global.modulesImages", GetModulesImages())
 		f.ValuesSetFromYaml("cloudProviderMetal3", `internal:
   providerDiscoveryData:
     zones:
@@ -113,6 +116,7 @@ networking:
 			ironic := f.KubernetesResource("Ironic", "d8-cloud-provider-metal3", "ironic")
 			Expect(ironic.Exists()).To(BeTrue())
 			Expect(ironic.Field("spec.version").String()).To(Equal("34.0"))
+			Expect(ironic.Field("spec.images.ironic").String()).NotTo(BeEmpty())
 			Expect(ironic.Field("spec.deployRamdisk.sshKey").String()).To(Equal("ssh-ed25519 AAAAC3Nz"))
 			Expect(ironic.Field("spec.networking.interface").String()).To(Equal("eno3"))
 			Expect(ironic.Field("spec.networking.ipAddress").String()).To(Equal("172.22.0.20"))
@@ -122,6 +126,19 @@ networking:
 			Expect(ironic.Field("spec.networking.dhcp.rangeEnd").String()).To(Equal("172.22.0.210"))
 			Expect(ironic.Field("spec.networking.dhcp.dnsAddress").String()).To(Equal("10.222.0.10"))
 			Expect(ironic.Field("spec.networking.dhcp.gatewayAddress").String()).To(Equal("172.22.0.20"))
+
+			capm3 := f.KubernetesResource("Deployment", "d8-cloud-provider-metal3", "capm3-controller-manager")
+			Expect(capm3.Exists()).To(BeTrue())
+
+			bmo := f.KubernetesResource("Deployment", "d8-cloud-provider-metal3", "baremetal-operator-controller-manager")
+			Expect(bmo.Exists()).To(BeTrue())
+
+			irso := f.KubernetesResource("Deployment", "d8-cloud-provider-metal3", "ironic-standalone-operator-controller-manager")
+			Expect(irso.Exists()).To(BeTrue())
+
+			bmoWebhook := f.KubernetesGlobalResource("ValidatingWebhookConfiguration", "baremetal-operator-validating-webhook-configuration")
+			Expect(bmoWebhook.Exists()).To(BeTrue())
+			Expect(bmoWebhook.Field("webhooks.0.clientConfig.service.namespace").String()).To(Equal("d8-cloud-provider-metal3"))
 		})
 	})
 })
