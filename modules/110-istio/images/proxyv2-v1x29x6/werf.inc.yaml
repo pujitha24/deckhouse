@@ -10,9 +10,9 @@
 {{- $llvmCacheRev := "llvmorg-17.0.6-bookworm-gcc12-v1" }}
 {{- $iptables_image_version := "1.8.9" | replace "." "-" }}
 #  to force manual creation of fresh build cache. If false - /tmp/bazel-cache & /tmp/bazel-deps will stay in build-envoy-artifact image
-{{- $buildWithPreparedCacheAndDeps := false }}
+{{- $buildWithPreparedCacheAndDeps := true }}
 #  keep /tmp/ccache-dir in build-image-artifact to export llvm ccache into llvm/llvm-build-cache repo
-{{- $buildWithPreparedLlvmCache := false }}
+{{- $buildWithPreparedLlvmCache := true }}
 ---
 # Based on https://github.com/istio/istio/blob/1.29.6/docker/Dockerfile.base
 #      and https://github.com/istio/istio/blob/1.29.6/pilot/docker/Dockerfile.proxyv2
