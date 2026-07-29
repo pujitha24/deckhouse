@@ -2,4 +2,4 @@
 
 ## 001-go-mod.patch
 
-Update go.mod and tidy.
+Update go.mod and tidy. Fix CVE.
