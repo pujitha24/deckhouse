@@ -166,8 +166,6 @@ shell:
   - |
     cat >> /src/proxy/user.bazelrc <<'EOF'
     build --disk_cache=/tmp/bazel-cache
-    build --linkopt=-L/usr/lib/llvm-16/lib
-    build --host_linkopt=-L/usr/lib/llvm-16/lib
     build --stamp
     build --config=release
     EOF
