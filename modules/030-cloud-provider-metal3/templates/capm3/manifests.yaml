@@ -256,7 +256,7 @@ subjects:
 ---
 apiVersion: v1
 data:
-  CAPM3_FAST_TRACK: ${CAPM3_FAST_TRACK:='false'}
+  CAPM3_FAST_TRACK: "false"
 kind: ConfigMap
 metadata:
   name: capm3-capm3fasttrack-configmap
@@ -271,6 +271,9 @@ spec:
   ports:
   - port: 443
     targetPort: webhook-server
+  selector:
+    control-plane: controller-manager
+    controller-tools.k8s.io: '1.0'
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -296,10 +299,10 @@ spec:
       containers:
       - args:
         - --webhook-port=9443
-        - --enableBMHNameBasedPreallocation=${ENABLE_BMH_NAME_BASED_PREALLOCATION:=false}
-        - --diagnostics-address=${CAPM3_DIAGNOSTICS_ADDRESS:=:8443}
-        - --insecure-diagnostics=${CAPM3_INSECURE_DIAGNOSTICS:=false}
-        - --tls-min-version=${TLS_MIN_VERSION:=VersionTLS13}
+        - --enableBMHNameBasedPreallocation=false
+        - --diagnostics-address=:8443
+        - --insecure-diagnostics=false
+        - --tls-min-version=VersionTLS13
         command:
         - /manager
         env:

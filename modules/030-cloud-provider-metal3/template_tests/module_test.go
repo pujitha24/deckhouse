@@ -129,6 +129,21 @@ networking:
 
 			capm3 := f.KubernetesResource("Deployment", "d8-cloud-provider-metal3", "capm3-controller-manager")
 			Expect(capm3.Exists()).To(BeTrue())
+			capm3Args := capm3.Field("spec.template.spec.containers.0.args").String()
+			Expect(capm3Args).To(ContainSubstring("--enableBMHNameBasedPreallocation=false"))
+			Expect(capm3Args).To(ContainSubstring("--diagnostics-address=:8443"))
+			Expect(capm3Args).To(ContainSubstring("--insecure-diagnostics=false"))
+			Expect(capm3Args).To(ContainSubstring("--tls-min-version=VersionTLS13"))
+			Expect(capm3Args).NotTo(ContainSubstring("${"))
+
+			capm3FastTrackConfigMap := f.KubernetesResource("ConfigMap", "d8-cloud-provider-metal3", "capm3-capm3fasttrack-configmap")
+			Expect(capm3FastTrackConfigMap.Exists()).To(BeTrue())
+			Expect(capm3FastTrackConfigMap.Field("data.CAPM3_FAST_TRACK").String()).To(Equal("false"))
+
+			capm3WebhookService := f.KubernetesResource("Service", "d8-cloud-provider-metal3", "capm3-webhook-service")
+			Expect(capm3WebhookService.Exists()).To(BeTrue())
+			Expect(capm3WebhookService.Field("spec.selector.control-plane").String()).To(Equal("controller-manager"))
+			Expect(capm3WebhookService.Field("spec.selector.controller-tools\\.k8s\\.io").String()).To(Equal("1.0"))
 
 			bmo := f.KubernetesResource("Deployment", "d8-cloud-provider-metal3", "baremetal-operator-controller-manager")
 			Expect(bmo.Exists()).To(BeTrue())

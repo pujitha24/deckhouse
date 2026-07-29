@@ -2140,6 +2140,7 @@ internal:
 
 				nodeControllerRole := f.KubernetesGlobalResource("ClusterRole", "d8:node-manager:node-controller")
 				Expect(nodeControllerRole.Field("rules").String()).To(ContainSubstring("metal3machinetemplates"))
+				Expect(nodeControllerRole.Field("rules").String()).To(ContainSubstring("metal3instanceclasses"))
 
 				capiControllerRole := f.KubernetesGlobalResource("ClusterRole", "d8:node-manager:capi-controller-manager:manager-role")
 				Expect(capiControllerRole.Field("rules").String()).To(ContainSubstring("metal3clusters"))
