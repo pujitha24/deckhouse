@@ -9,6 +9,16 @@ lang: ru
 
 Модуль `alb` реализует прикладной балансировщик нагрузки (Application Load Balancer, ALB) и позволяет публиковать приложения с помощью Kubernetes Gateway API. Он разворачивает и настраивает инфраструктуру для приёма и маршрутизации внешних запросов, а также проверяет пользовательскую конфигурацию Gateway API.
 
+Модуль построен на Kubernetes Gateway API — современном стандарте управления входящим трафиком, который приходит на смену Ingress API. Он предоставляет:
+
+- единый декларативный API для HTTP/HTTPS, gRPC, TCP, UDP и TLS passthrough;
+- разделение ответственности между администратором кластера (ClusterALBInstance/ALBInstance), администратором неймспейса (ListenerSet) и командой приложения (маршруты);
+- расширенные возможности обработки запросов: WAF на уровне маршрута, внешнюю аутентификацию, списки разрешённых IP-адресов, ограничение частоты запросов, session affinity, GeoIP, BackendTLSPolicy, Proxy Protocol и HTTP/3.
+
+Несмотря на схожие названия, Kubernetes Gateway API и API Gateway — разные понятия. Kubernetes Gateway API — набор ресурсов Kubernetes, описывающих маршрутизацию входящего трафика к сервисам. API Gateway — архитектурный компонент, который объединяет API приложений за единой точкой входа. Модуль `alb` является реализацией Kubernetes Gateway API.
+
+Сравнение возможностей с `ingress-nginx` — в разделе [Балансировка входящего трафика](/products/kubernetes-platform/documentation/v1/admin/configuration/network/ingress/#сравнение-возможностей-модулей-ingress-nginx-и-alb).
+
 {% alert level="info" %}
 ALB средствами Kubernetes Gateway API может использоваться в кластере совместно с ALB средствами Ingress NGINX Controller.
 Подробнее — в разделе [«Совместное использование с другими модулями и сторонним решениями»](#совместное-использование-с-другими-модулями-и-сторонними-решениями).
@@ -48,7 +58,8 @@ ALB средствами Kubernetes Gateway API может использова�
 - GRPCRoute: v1;
 - HTTPRoute: v1;
 - ReferenceGrant: v1beta1;
-- TCPRoute: v1alpha2;
+- TCPRoute: v1alpha2/v1;
+- UDPRoute: v1alpha2/v1;
 - TLSRoute: v1.
 
 Контроллер модуля `alb` в процессе запуска проверяет текущие хранимые версии объектов Gateway API. В случае обнаружения расхождения между установленными и требуемыми версиями контроллер прекращает работу. Если же в кластере полностью отсутствует тот или иной тип объекта Gateway API, нужная версия будет создана контроллером автоматически и он продолжит работу.
@@ -63,7 +74,8 @@ declare -A want=(
     [httproutes.gateway.networking.k8s.io]=v1
     [listenersets.gateway.networking.k8s.io]=v1
     [referencegrants.gateway.networking.k8s.io]=v1beta1
-    [tcproutes.gateway.networking.k8s.io]=v1alpha2
+    [tcproutes.gateway.networking.k8s.io]="v1|v1alpha2"
+    [udproutes.gateway.networking.k8s.io]="v1|v1alpha2"
     [tlsroutes.gateway.networking.k8s.io]=v1
     [backendtlspolicies.gateway.networking.k8s.io]=v1
 )
@@ -72,7 +84,7 @@ for crd in "${!want[@]}"; do
     got="$(
         d8 k get crd "$crd" -o jsonpath='{.spec.versions[?(@.storage==true)].name}' 2>/dev/null || true
     )"
-    if [[ "$got" == "${want[$crd]}" ]]; then
+    if [[ -n "$got" && "$got" =~ ^(${want[$crd]})$ ]]; then
         echo "$crd OK storage=$got"
     else
         echo "$crd FAILED cluster=${got:-MISSING} expected=${want[$crd]}"
@@ -88,7 +100,7 @@ done | sort
 
 1. [Создание управляемого объекта Gateway (шлюза)](#создание-управляемого-объекта-gateway) с помощью cluster-scoped (используется ресурс [ClusterALBInstance](/modules/alb/cr.html#clusteralbinstance)) или namespaced- (используется ресурс [ALBInstance](/modules/alb/cr.html#albinstance)) кастомного ресурса.
 1. [Создание объекта ListenerSet](#создание-объектов-listenerset-для-управления-приёмом-входящих-запросов), который привязывается к созданному на предыдущем шаге объекту Gateway. ListenerSet управляет приемом входящих запросов.
-1. [Создание объектов (маршрутов)](#создание-маршрутов-и-настройка-маршрутизации) для маршрутизации входящих запросов к приложению и их привязка к ListenerSet. Для маршрутизации используются объекты HTTPRoute, GRPCRoute, TCPRoute и TLSRoute (нужный выбирается в зависимости от типа трафика к публикуемому приложению).
+1. [Создание объектов (маршрутов)](#создание-маршрутов-и-настройка-маршрутизации) для маршрутизации входящих запросов к приложению. Объекты HTTPRoute, GRPCRoute и TLSRoute привязываются к ListenerSet. TCPRoute и UDPRoute для plain TCP/UDP-портов из [`additionalPorts`](/modules/alb/cr.html#clusteralbinstance-v1alpha1-spec-inlet-additionalports) привязываются напрямую к слушателю объекта Gateway.
 
 ### Создание управляемого объекта Gateway
 
@@ -287,15 +299,11 @@ spec:
 
 Так как `gatewayName` не меняется, объект Gateway остаётся прежним. В большинстве случаев объект ListenerSet и маршруты при этом можно не пересоздавать.
 
-## Открытие дополнительного TCP-порта на общекластерном Gateway
+## Открытие дополнительного TCP/UDP-порта на общекластерном Gateway {#tcp-port}
 
-Если кроме стандартных HTTP/HTTPS-слушателей на шлюзе нужен отдельный TCP-порт, добавьте в соответствующий ClusterALBInstance поле [`spec.inlet.additionalPorts`](/modules/alb/cr.html#clusteralbinstance-v1alpha1-spec-inlet-additionalports) с описанием TCP-порта.
-
-Пример:
+Если кроме стандартных HTTP/HTTPS-слушателей на шлюзе нужен отдельный TCP/UDP-порт, добавьте в соответствующий ClusterALBInstance поле [`spec.inlet.additionalPorts`](/modules/alb/cr.html#clusteralbinstance-v1alpha1-spec-inlet-additionalports), например:
 
 ```yaml
-... 
-
 spec:
   gatewayName: public-gw
   inlet:
@@ -304,11 +312,9 @@ spec:
     additionalPorts:
       - port: 9000
         protocol: TCP
-
-...
 ```
 
-Контроллер добавит на шлюз, управляемый объектом ClusterALBInstance, соответствующий обработчик TCP-трафика с именем секции (`sectionName`) вида `tcp-port-9000`. Затем можно создать объект (маршрут) TCPRoute, который будет ссылаться на этот объект Gateway и этот `sectionName` напрямую:
+Контроллер добавит на управляемый объект Gateway соответствующий обработчик TCP/UDP-трафика с именем секции (`sectionName`) вида `tcp-port-9000`. Затем можно создать объект TCPRoute, который ссылается на этот объект Gateway и этот `sectionName` напрямую:
 
 ```yaml
 apiVersion: gateway.networking.k8s.io/v1alpha2
@@ -329,10 +335,192 @@ spec:
 ```
 
 {% alert level="info" %}
-В случае создания объекта TCPRoute в неймспейсе, отличном от неймспейса целевого Gateway, дополнительно необходимо создать соответствующий ReferenceGrant объект.
+Если объект TCPRoute или UDPRoute создаётся в неймспейсе, отличном от неймспейса целевого Gateway, дополнительно необходимо создать соответствующий объект ReferenceGrant.
 {% endalert %}
 
-Если один и тот же шлюз (Gateway) управляется несколькими объектами ClusterALBInstance, набор [`additionalPorts`](/modules/alb/cr.html#clusteralbinstance-v1alpha1-spec-inlet-additionalports), который попадает в объект Gateway, берётся из самого старого объекта ClusterALBInstance. Для остальных инстансов (ClusterALBInstance) в статусе может появиться признак конфликта портов.
+[Примеры UDPRoute и шаги публикации приложений](/products/kubernetes-platform/documentation/v1/user/network/ingress/alb.html#grpcroute-tlsroute-tcproute-and-udproute-objects) приведены в пользовательской документации.
+
+## Конфликты портов при использовании нескольких ClusterALBInstance/ALBInstance для одного Gateway {#conflicts}
+
+Если один и тот же объект Gateway обслуживается несколькими объектами ClusterALBInstance или ALBInstance, итоговый набор слушателей, который попадает в объект Gateway, берётся из самого старого объекта ClusterALBInstance или ALBInstance. Для остальных инстансов в статусе появляется признак конфликта портов с указанием имени «управляющего» инстанса.
+
+## Примеры конфигурации инфраструктуры {#infrastructure-examples}
+
+Модуль поддерживает два типа инлета:
+
+- `LoadBalancer` — приём трафика через объект Service с типом `LoadBalancer` (облачные провайдеры или bare metal с MetalLB). Доступен и для ClusterALBInstance, и для ALBInstance.
+- `HostPort` — приём трафика на портах узлов без внешнего балансировщика. Доступен только для ClusterALBInstance.
+
+Полное описание полей CR: [ClusterALBInstance](/modules/alb/cr.html#clusteralbinstance) и [ALBInstance](/modules/alb/cr.html#albinstance). Дополнительные примеры — в [примерах модуля `alb`](/modules/alb/examples.html).
+
+### Облачный провайдер (инлет LoadBalancer) {#cloud-load-balancer}
+
+```yaml
+apiVersion: network.deckhouse.io/v1alpha1
+kind: ClusterALBInstance
+metadata:
+  name: main
+spec:
+  gatewayName: public-gw
+  inlet:
+    type: LoadBalancer
+    loadBalancer: {}
+```
+
+Чтобы задать параметры облачного балансировщика, укажите нужные аннотации объекта Service в [`spec.inlet.loadBalancer.serviceAnnotations`](/modules/alb/cr.html#clusteralbinstance-v1alpha1-spec-inlet-loadbalancer-serviceannotations). Например, для Network Load Balancer в AWS:
+
+```yaml
+apiVersion: network.deckhouse.io/v1alpha1
+kind: ClusterALBInstance
+metadata:
+  name: main
+spec:
+  gatewayName: public-gw
+  inlet:
+    type: LoadBalancer
+    loadBalancer:
+      serviceAnnotations:
+        service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
+```
+
+### Bare metal с балансировщиком MetalLB {#bare-metal-metallb}
+
+1. Включите модуль [`metallb`](/modules/metallb/).
+1. Создайте объект MetalLoadBalancerClass с пулом адресов. Разместите балансировщики MetalLB на тех же узлах, что и поды Envoy Proxy модуля `alb` (обычно frontend-узлы с лейблом `node-role.deckhouse.io/frontend`):
+
+   ```yaml
+   apiVersion: network.deckhouse.io/v1alpha1
+   kind: MetalLoadBalancerClass
+   metadata:
+     name: alb
+   spec:
+     addressPool:
+       - 192.168.2.100-192.168.2.150
+     isDefault: false
+     nodeSelector:
+       node-role.deckhouse.io/frontend: ""
+     type: L2
+   ```
+
+1. Создайте объект ClusterALBInstance и укажите [`spec.inlet.loadBalancer.loadBalancerClass`](/modules/alb/cr.html#clusteralbinstance-v1alpha1-spec-inlet-loadbalancer-loadbalancerclass):
+
+   ```yaml
+   apiVersion: network.deckhouse.io/v1alpha1
+   kind: ClusterALBInstance
+   metadata:
+     name: main
+   spec:
+     gatewayName: public-gw
+     inlet:
+       type: LoadBalancer
+       loadBalancer:
+         loadBalancerClass: alb
+         serviceAnnotations:
+           # Число адресов, выделяемых из пула MetalLoadBalancerClass.
+           network.deckhouse.io/l2-load-balancer-external-ips-count: "1"
+   ```
+
+### Bare metal без внешнего балансировщика (инлет HostPort) {#bare-metal-hostport}
+
+```yaml
+apiVersion: network.deckhouse.io/v1alpha1
+kind: ClusterALBInstance
+metadata:
+  name: main
+spec:
+  gatewayName: public-gw
+  inlet:
+    type: HostPort
+    hostPort:
+      httpPort: 80
+      httpsPort: 443
+```
+
+Чтобы поды Envoy Proxy размещались только на выделенных узлах, задайте [`nodeSelector`](/modules/alb/cr.html#clusteralbinstance-v1alpha1-spec-nodeselector) и [`tolerations`](/modules/alb/cr.html#clusteralbinstance-v1alpha1-spec-tolerations) для ClusterALBInstance.
+
+### Приём трафика за внешним L7-балансировщиком (Proxy Protocol) {#proxy-protocol}
+
+Если модуль `alb` работает за внешним L7-балансировщиком (например, Cloudflare или Qrator), включите [`useProxyProtocol`](/modules/alb/cr.html#clusteralbinstance-v1alpha1-spec-useproxyprotocol), чтобы получать реальные адреса клиентов. Дополнительно ограничьте с помощью [`spec.originalIPDetection`](/modules/alb/cr.html#clusteralbinstance-v1alpha1-spec-originalipdetection) список подсетей, из которых разрешено доверять заголовкам с адресом клиента.
+
+```yaml
+apiVersion: network.deckhouse.io/v1alpha1
+kind: ClusterALBInstance
+metadata:
+  name: main
+spec:
+  gatewayName: public-gw
+  inlet:
+    type: HostPort
+    hostPort:
+      httpPort: 80
+      httpsPort: 443
+  useProxyProtocol: true
+  originalIPDetection:
+    setRealIPFrom:
+      - 10.0.0.0/16
+```
+
+{% alert level="warning" %}
+Proxy Protocol и HTTP/3 нельзя включать одновременно.
+{% endalert %}
+
+### Разделение публичной и административной зон {#public-and-admin-zones}
+
+Создайте отдельный объект Gateway для каждой зоны и ограничьте приём административного трафика с помощью [`spec.acceptRequestsFrom`](/modules/alb/cr.html#clusteralbinstance-v1alpha1-spec-acceptrequestsfrom). Решение о допуске соединения принимается по реальному адресу подключения, а не по заголовкам запроса.
+
+```yaml
+apiVersion: network.deckhouse.io/v1alpha1
+kind: ClusterALBInstance
+metadata:
+  name: public
+spec:
+  gatewayName: public-gw
+  inlet:
+    type: LoadBalancer
+    loadBalancer: {}
+---
+apiVersion: network.deckhouse.io/v1alpha1
+kind: ClusterALBInstance
+metadata:
+  name: admin
+spec:
+  gatewayName: admin-gw
+  inlet:
+    type: LoadBalancer
+    loadBalancer: {}
+  acceptRequestsFrom:
+    - 1.2.3.4/32
+    - 10.0.0.0/16
+```
+
+Далее для каждого шлюза создайте отдельные объекты ListenerSet и маршруты. Примеры публикации приложений: [Использование Application Load Balancer (ALB)](/products/kubernetes-platform/documentation/v1/user/network/ingress/alb.html).
+
+### Публикация в неймспейсе (ALBInstance) {#namespaced-load-balancer}
+
+```yaml
+apiVersion: network.deckhouse.io/v1alpha1
+kind: ALBInstance
+metadata:
+  name: app-gw
+  namespace: prod
+spec:
+  gatewayName: app-gw
+  inlet:
+    type: LoadBalancer
+    loadBalancer: {}
+```
+
+После перехода ALBInstance в состояние `Ready` создайте объекты ListenerSet и HTTPRoute в том же неймспейсе. Дальнейшие шаги — в разделе [Публикация приложения через объект ALBInstance](/products/kubernetes-platform/documentation/v1/user/network/ingress/alb.html#публикация-приложения-через-объект-albinstance).
+
+## FAQ и дополнительные материалы {#faq}
+
+Ответы на частые вопросы по модулю `alb` собраны в [FAQ модуля `alb`](/modules/alb/faq.html):
+
+- [Поддерживает ли модуль приём TCP-трафика?](/modules/alb/faq.html#does-the-module-support-receiving-tcp-traffic) — также [открытие дополнительного TCP/UDP-порта](#tcp-port) и [примеры публикации маршрутов](/products/kubernetes-platform/documentation/v1/user/network/ingress/alb.html#grpcroute-tlsroute-tcproute-and-udproute-objects);
+- [Поддерживает ли модуль приём UDP-трафика?](/modules/alb/faq.html#does-the-module-support-receiving-udp-traffic);
+- [Как сконфигурировать балансировщик нагрузки для проверки доступности ClusterALBInstance/ALBInstance?](/modules/alb/faq.html) (endpoint `/healthz` на порту `80`).
+
+Полный набор примеров инлетов и зон — в [примерах модуля `alb`](/modules/alb/examples.html). Справочник параметров: [конфигурация модуля `alb`](/modules/alb/configuration.html) и [Custom Resources модуля `alb`](/modules/alb/cr.html).
 
 ## Просмотр конфигурации Envoy Proxy
 
