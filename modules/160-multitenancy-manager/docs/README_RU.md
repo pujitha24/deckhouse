@@ -60,8 +60,8 @@ description: Мультитенантность и проекты в Kubernetes.
 При создании ресурса [Project](./cr.html#project) из определенного [ProjectTemplate](./cr.html#projecttemplate) происходит следующее:
 
 1. Переданные [параметры](./cr.html#project-v1alpha3-spec-parameters) валидируются по OpenAPI-спецификации (параметр [`parametersSchema.openAPIV3Schema`
-](./cr.html#projecttemplate-v1alpha1-spec-parametersschema-openapiv3schema) ресурса [ProjectTemplate](./cr.html#projecttemplate));
-1. Выполняется рендеринг [шаблона для ресурсов](./cr.html#projecttemplate-v1alpha1-spec-resourcestemplate) с помощью [Helm](https://helm.sh/docs/). Значения для рендеринга берутся из параметра [`parameters`](./cr.html#project-v1alpha3-spec-parameters) ресурса [Project](./cr.html#project);
+](./cr.html#projecttemplate-v1alpha2-spec-parametersschema-openapiv3schema) ресурса [ProjectTemplate](./cr.html#projecttemplate));
+1. Выполняется рендеринг [шаблона для ресурсов](./cr.html#projecttemplate-v1alpha2-spec-resourcestemplate) с помощью [Helm](https://helm.sh/docs/). Значения для рендеринга берутся из параметра [`parameters`](./cr.html#project-v1alpha3-spec-parameters) ресурса [Project](./cr.html#project);
 1. Cоздается `Namespace` с именем, которое совпадает c именем [Project](./cr.html#project);
 1. По очереди создаются все ресурсы, описанные в шаблоне.
 1. Стандартные поля проекта применяются независимо от шаблона: [`.spec.quota`](./cr.html#project-v1alpha3-spec-quota) преобразуется в `ResourceQuota`, а [`.spec.administrators`](./cr.html#project-v1alpha3-spec-administrators) — в автоматически управляемый [ProjectRoleBinding](./cr.html#projectrolebinding).
