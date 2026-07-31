@@ -21,7 +21,7 @@ lang: ru
 
 {% alert level="info" %}
 ALB средствами Kubernetes Gateway API может использоваться в кластере совместно с ALB средствами Ingress NGINX Controller.
-Подробнее — в разделе [«Совместное использование с другими модулями и сторонним решениями»](#совместное-использование-с-другими-модулями-и-сторонними-решениями).
+Подробнее — в разделе [«Совместное использование с другими модулями и сторонними решениями»](#совместное-использование-с-другими-модулями-и-сторонними-решениями).
 {% endalert %}
 
 ## Валидация конфигурации Gateway API
@@ -30,7 +30,7 @@ ALB средствами Kubernetes Gateway API может использова�
 
 ## Действия перед включением и настройкой ALB в кластере
 
-Перед включением и настройкой ALB в кластере DKP:
+Перед включением и настройкой ALB в кластере Deckhouse Kubernetes Platform (DKP):
 
 - Если необходимо [публиковать служебные домены](#публикация-служебных-доменов) ([веб-интерфейсы служебных компонентов DKP](/products/kubernetes-platform/documentation/v1/user/web/ui.html) и других модулей), убедитесь, что указан глобальный параметр [`publicDomainTemplate`](/products/kubernetes-platform/documentation/v1/reference/api/global.html#parameters-modules-publicdomaintemplate). Если параметр `publicDomainTemplate` не указан, системные объекты HTTPRoute/Gateway/ListenerSet будут создаваться некорректно и веб-интерфейсы служебных компонентов DKP и других модулей не будут опубликованы.
 - Если в кластере используются сторонние решения Gateway API, [проверьте совместимость](#совместное-использование-с-alb-на-основе-сторонних-решений-gateway-api) используемых версий API для объектов сторонних решений Gateway API с версиями, требуемыми для контроллера модуля `alb`.
@@ -99,8 +99,8 @@ done | sort
 Процесс публикации приложения включает следующие шаги:
 
 1. [Создание управляемого объекта Gateway (шлюза)](#создание-управляемого-объекта-gateway) с помощью cluster-scoped (используется ресурс [ClusterALBInstance](/modules/alb/cr.html#clusteralbinstance)) или namespaced- (используется ресурс [ALBInstance](/modules/alb/cr.html#albinstance)) кастомного ресурса.
-1. [Создание объекта ListenerSet](#создание-объектов-listenerset-для-управления-приёмом-входящих-запросов), который привязывается к созданному на предыдущем шаге объекту Gateway. ListenerSet управляет приемом входящих запросов.
-1. [Создание объектов (маршрутов)](#создание-маршрутов-и-настройка-маршрутизации) для маршрутизации входящих запросов к приложению. Объекты HTTPRoute, GRPCRoute и TLSRoute привязываются к ListenerSet. TCPRoute и UDPRoute для plain TCP/UDP-портов из [`additionalPorts`](/modules/alb/cr.html#clusteralbinstance-v1alpha1-spec-inlet-additionalports) привязываются напрямую к слушателю объекта Gateway.
+1. [Создание объекта ListenerSet](#создание-объектов-listenerset-для-управления-приёмом-входящих-запросов), который привязывается к созданному на предыдущем шаге объекту Gateway. ListenerSet управляет приёмом входящих запросов.
+1. [Создание объектов (маршрутов)](#создание-маршрутов-и-настройка-маршрутизации) для маршрутизации входящих запросов к приложению. Объекты HTTPRoute, GRPCRoute и TLSRoute привязываются к ListenerSet. TCPRoute и UDPRoute для обычных TCP/UDP-портов из [`additionalPorts`](/modules/alb/cr.html#clusteralbinstance-v1alpha1-spec-inlet-additionalports) привязываются напрямую к слушателю объекта Gateway.
 
 ### Создание управляемого объекта Gateway
 
@@ -122,7 +122,7 @@ done | sort
 
 - Каждый объект Gateway обслуживается как минимум одним экземпляром Envoy Proxy.
 - Трафик в него приходит через объект Service типа `LoadBalancer` или напрямую с использованием параметров `HostPort`.
-- Каждый объект Gateway по умолчанию создает два обработчика: `d8-http` (порт `80`) и `d8-https` (порт `443`). Они предназначены для служебных целей. Например, для проверки доступности шлюза или работы cert-manager (HTTP-01). Для публикации приложений эти обработчики использовать не рекомендуется, используйте для этого ListenerSet.
+- Каждый объект Gateway по умолчанию создаёт два обработчика: `d8-http` (порт `80`) и `d8-https` (порт `443`). Они предназначены для служебных целей. Например, для проверки доступности шлюза или работы cert-manager (HTTP-01). Для публикации приложений эти обработчики использовать не рекомендуется, используйте для этого ListenerSet.
 - На один объект Gateway могут ссылаться несколько объектов ClusterALBInstance или ALBInstance (через поле `gatewayName`). В этом случае они описывают общий шлюз, но инфраструктура приёма запросов может отличаться в зависимости от настроек. Можно рассматривать `gatewayName` как аналог `ingressClass` для объектов [IngressNginxController](/modules/ingress-nginx/cr.html#ingressnginxcontroller).
 
 {% alert level="warning" %}
@@ -136,14 +136,13 @@ apiVersion: network.deckhouse.io/v1alpha1
 kind: ClusterALBInstance
 metadata:
   name: public-gw
-  namespace: prod
 spec:
   gatewayName: public-gw
   inlet:
     type: LoadBalancer
 ```
 
-Пример манифеста ресурса ALBInstance для создания отдельного шлюза для приложения или команды в выделенном неймспейсе представлен в разделе [«Использование»](../../../../../user/network/ingress/alb.html#публикация-приложения-через-объект-albinstance).
+Пример манифеста ресурса ALBInstance для создания отдельного шлюза для приложения или команды в выделенном неймспейсе представлен в разделе [«Публикация приложения через объект ALBInstance»](/products/kubernetes-platform/documentation/v1/user/network/ingress/alb.html#публикация-приложения-через-объект-albinstance).
 
 ### Создание объектов ListenerSet для управления приёмом входящих запросов
 
@@ -154,7 +153,7 @@ spec:
 - для ClusterALBInstance объекты ListenerSet могут располагаться в любом неймспейсе;
 - для ALBInstance объекты ListenerSet рекомендуется располагать в том же неймспейсе, что и родительский ALBInstance.
 
-В обоих случаях объект ListenerSet рекомендуется располагать в том же неймспейсе, что и подключаемые к нему объекты HTTPRoute, GRPCRoute, TCPRoute и TLSRoute. Это упрощает читаемость конфигурации и позволяет избежать дополнительных настроек, например объектов ReferenceGrant.
+В обоих случаях объект ListenerSet рекомендуется располагать в том же неймспейсе, что и подключаемые к нему объекты HTTPRoute, GRPCRoute и TLSRoute. Это упрощает читаемость конфигурации и позволяет избежать дополнительных настроек, например, объектов ReferenceGrant. TCPRoute и UDPRoute для обычных TCP/UDP-портов из `additionalPorts` привязываются напрямую к слушателю объекта Gateway.
 
 Пример манифеста ресурса ListenerSet для управления приёмом входящих HTTP- и HTTPS-запросов через общекластерный шлюз:
 
@@ -192,9 +191,10 @@ spec:
 - HTTPRoute — для маршрутизации HTTP/HTTPS/TLS запросов. Объекты HTTPRoute поддерживают расширенные настройки с помощью аннотаций, которые дополняют текущую спецификацию Gateway API.
 - GRPCRoute — для маршрутизации gRPC-трафика.
 - TLSRoute — для сквозной маршрутизации TLS-трафика.
-- TCPRoute — для маршрутизации TCP-трафика.
+- TCPRoute — для маршрутизации TCP-трафика. Для обычных TCP-портов из `additionalPorts` объект TCPRoute привязывается напрямую к слушателю Gateway, а не к ListenerSet.
+- UDPRoute — для маршрутизации UDP-трафика. Для обычных UDP-портов из `additionalPorts` объект UDPRoute привязывается напрямую к слушателю Gateway, а не к ListenerSet.
 
-Маршруты привязываются к ListenerSet.
+Объекты HTTPRoute, GRPCRoute и TLSRoute привязываются к ListenerSet. TCPRoute и UDPRoute для обычных TCP/UDP-портов из `additionalPorts` привязываются напрямую к слушателю объекта Gateway.
 
 Пример маршрута для HTTP-трафика:
 
@@ -259,6 +259,7 @@ spec:
    Пример манифеста cluster-scoped-объекта ClusterALBInstance c параметром `spec.defaultDeckhouseGateway: true`:
 
    ```yaml
+   apiVersion: network.deckhouse.io/v1alpha1
    kind: ClusterALBInstance
    metadata:
      name: public-gw
@@ -289,7 +290,7 @@ spec:
 1. В текущем объекте ClusterALBInstance, который предоставляет шлюз DKP по умолчанию, задайте `spec.defaultDeckhouseGateway: false`.
 1. Проверьте, что все системные объекты ListenerSet теперь ссылаются на новый объект Gateway в `spec.parentRef`.
 
-## Смена инлета с сохранением текущего Gateway
+## Смена инлета с сохранением текущего Gateway {#change-inlet}
 
 Чтобы сменить инлет, используемый для уже созданного объекта Gateway, выполните следующие действия:
 
@@ -522,7 +523,7 @@ spec:
 
 Полный набор примеров инлетов и зон — в [примерах модуля `alb`](/modules/alb/examples.html). Справочник параметров: [конфигурация модуля `alb`](/modules/alb/configuration.html) и [Custom Resources модуля `alb`](/modules/alb/cr.html).
 
-## Просмотр конфигурации Envoy Proxy
+## Просмотр конфигурации Envoy Proxy {#envoy-config}
 
 Для диагностики полезно посмотреть, какую конфигурацию контроллер и конфигуратор прокси передали в Envoy Proxy, обслуживающий объект Gateway.
 
