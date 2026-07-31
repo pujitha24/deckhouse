@@ -3110,6 +3110,48 @@ alerts:
         Some registry cache replicas do not hold the whole image set.
       severity: "6"
       markupFormat: markdown
+    - name: D8RegistryStorageNotReclaimed
+      sourceFile: modules/038-registry/monitoring/prometheus-rules/registry.yaml
+      moduleUrl: 038-registry
+      module: registry
+      edition: ce
+      description: |-
+        No replica of the in-cluster cache has finished a garbage collection in the last week.
+        Nothing is broken yet: the cache serves images normally, and it will keep doing so until
+        the disk fills.
+
+        It is worth attention because the collection is the only thing that ever removes
+        anything. Every release adds a slice of the repository, so a store nobody reclaims grows
+        in one direction — and a full store cannot be written to, which in an air-gapped cluster
+        means it cannot be updated.
+
+        Where to look:
+
+        ```
+        kubectl get registrystorage registry -o jsonpath='{.status.replicas}' | jq \
+          'map({node, collectedAt, collectionError})'
+        kubectl get registrystorage registry -o jsonpath='{.spec.garbageCollection}' | jq
+        ```
+
+        The likely reasons, in the order they are worth checking:
+
+        - the collection is turned off in the `registry` ModuleConfig under
+          `storage.garbageCollection.enabled`;
+        - the schedule has not come round yet, or names an hour that never arrives — a
+          collection only runs on the schedule, and an unreadable expression is refused rather
+          than guessed at;
+        - no release is deployed, which is the one input that justifies deleting anything: every
+          deletion is "older than what the cluster runs", and without that there is nothing to
+          compare against;
+        - `collectionError` on a replica, which says what its own last attempt hit.
+
+        Collecting puts one replica read-only while it runs. That is not an outage — it keeps
+        serving every image it holds — but it does mean the schedule belongs at a quiet hour,
+        which is where it defaults to.
+      summary: |
+        The registry cache has not reclaimed its disk for a week.
+      severity: "6"
+      markupFormat: markdown
     - name: D8RegistryUpstreamProbeFailing
       sourceFile: modules/038-registry/monitoring/prometheus-rules/registry.yaml
       moduleUrl: 038-registry

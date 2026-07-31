@@ -67,7 +67,6 @@ attached: it takes effect only once the cache holds the whole expected image set
 are never cut off. Until then the module keeps using the upstream and says so — see
 [`D8RegistryAirGapTransitionHeld`](faq.html#what-do-the-registry-alerts-mean).
 
-
 The cache reclaims its own disk. Nothing else ever removes anything from it — every release adds
 a slice of the repository — so a nightly collection deletes the slices belonging to releases the
 cluster has moved past, keeping the deployed release and the one before it. It puts one replica
