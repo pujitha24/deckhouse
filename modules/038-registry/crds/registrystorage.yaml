@@ -311,13 +311,13 @@ spec:
                       role:
                         type: string
                         enum:
-                          - leader
-                          - follower
+                          - Leader
+                          - Follower
                         description: |
                           The replica's role in replication.
 
-                          - `leader` — filled from the upstream, or by `d8 mirror push` in an air-gapped cluster, and hands out replication tasks.
-                          - `follower` — filled from the leader, ahead of time, so a leader loss does not mean filling from scratch.
+                          - `Leader` — filled from the upstream, or by `d8 mirror push` in an air-gapped cluster, and hands out replication tasks.
+                          - `Follower` — filled from the leader, ahead of time, so a leader loss does not mean filling from scratch.
                       full:
                         type: boolean
                         description: |

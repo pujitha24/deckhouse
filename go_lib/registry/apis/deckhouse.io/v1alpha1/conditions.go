@@ -102,10 +102,10 @@ type ReplicaRole string
 const (
 	// ReplicaRoleLeader is the replica that is filled from the upstream (or by
 	// `d8 mirror push` in air-gap) and that hands out replication tasks.
-	ReplicaRoleLeader ReplicaRole = "leader"
+	ReplicaRoleLeader ReplicaRole = "Leader"
 
 	// ReplicaRoleFollower is a replica filled from the leader, ahead of time.
-	ReplicaRoleFollower ReplicaRole = "follower"
+	ReplicaRoleFollower ReplicaRole = "Follower"
 )
 
 // Mode is whether the module manages the image pull path at all.
@@ -129,10 +129,10 @@ type BackendName string
 
 const (
 	// BackendStorage is the in-cluster cache.
-	BackendStorage BackendName = "storage"
+	BackendStorage BackendName = "Storage"
 
 	// BackendUpstream is the primary upstream, used either as the only backend
 	// (cache disabled) or as a fallback while the cache is still filling. It
 	// disappears from the layout when the cluster goes air-gap.
-	BackendUpstream BackendName = "upstream"
+	BackendUpstream BackendName = "Upstream"
 )

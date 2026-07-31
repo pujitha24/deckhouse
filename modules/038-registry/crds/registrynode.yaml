@@ -84,13 +84,13 @@ spec:
                       name:
                         type: string
                         enum:
-                          - storage
-                          - upstream
+                          - Storage
+                          - Upstream
                         description: |
                           The backend's role.
 
-                          - `storage` — the in-cluster cache.
-                          - `upstream` — the primary upstream, used either as the only backend or as a fallback while the cache fills.
+                          - `Storage` — the in-cluster cache.
+                          - `Upstream` — the primary upstream, used either as the only backend or as a fallback while the cache fills.
                       scheme:
                         type: string
                         enum:

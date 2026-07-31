@@ -146,13 +146,13 @@ func TestObserveStorage(t *testing.T) {
 	assert.EqualValues(t, 3, testutil.ToFloat64(metrics.StorageReplicas))
 	assert.EqualValues(t, 1, testutil.ToFloat64(metrics.StorageSafeToDropUpstream))
 	assert.EqualValues(t, 1, testutil.ToFloat64(
-		metrics.StorageReplicaFull.WithLabelValues("master-0", "leader")))
+		metrics.StorageReplicaFull.WithLabelValues("master-0", string(registryv1alpha1.ReplicaRoleLeader))))
 	assert.Zero(t, testutil.ToFloat64(
-		metrics.StorageReplicaFull.WithLabelValues("master-1", "follower")))
+		metrics.StorageReplicaFull.WithLabelValues("master-1", string(registryv1alpha1.ReplicaRoleFollower))))
 	// Counters that look complete beside an error are not completeness: `full` says what
 	// it holds, the error says whether its last pass finished.
 	assert.Zero(t, testutil.ToFloat64(
-		metrics.StorageReplicaFull.WithLabelValues("master-2", "follower")))
+		metrics.StorageReplicaFull.WithLabelValues("master-2", string(registryv1alpha1.ReplicaRoleFollower))))
 }
 
 // TestObserveStorageGoesAwayWithIt: a cache that was turned off must stop being reported,
@@ -160,7 +160,7 @@ func TestObserveStorage(t *testing.T) {
 func TestObserveStorageGoesAwayWithIt(t *testing.T) {
 	r := newReconciler(t)
 	metrics.StorageReplicas.Set(3)
-	metrics.StorageReplicaFull.WithLabelValues("master-0", "leader").Set(1)
+	metrics.StorageReplicaFull.WithLabelValues("master-0", string(registryv1alpha1.ReplicaRoleLeader)).Set(1)
 
 	run(t, r)
 

@@ -79,7 +79,7 @@ func TestResolvePrimarySwapsThePrefixPerBackend(t *testing.T) {
 
 	// The cache first. Its own prefix is the one the cluster uses, so nothing changes.
 	cache := decision.Targets[0]
-	assert.Equal(t, "storage", cache.Name)
+	assert.Equal(t, string(registryv1alpha1.BackendStorage), cache.Name)
 	assert.Equal(t, constant.Host, cache.Host)
 	assert.Equal(t, "/v2/system/deckhouse/registry-controller/manifests/v1.76.6", cache.Path)
 	assert.Equal(t, "read-secret", cache.Auth.Password)
@@ -87,7 +87,7 @@ func TestResolvePrimarySwapsThePrefixPerBackend(t *testing.T) {
 
 	// The upstream behind it, where the same image lives under a different prefix.
 	upstream := decision.Targets[1]
-	assert.Equal(t, "upstream", upstream.Name)
+	assert.Equal(t, string(registryv1alpha1.BackendUpstream), upstream.Name)
 	assert.Equal(t, "/v2/deckhouse/ee/registry-controller/manifests/v1.76.6", upstream.Path)
 	assert.Equal(t, "license-key", upstream.Auth.Password)
 	assert.Equal(t,
@@ -104,7 +104,7 @@ func TestResolvePrimaryAirGapHasNoFallback(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Len(t, decision.Targets, 1)
-	assert.Equal(t, "storage", decision.Targets[0].Name)
+	assert.Equal(t, string(registryv1alpha1.BackendStorage), decision.Targets[0].Name)
 }
 
 // TestResolvePrimaryWithoutACache covers the cache being switched off: the upstream is

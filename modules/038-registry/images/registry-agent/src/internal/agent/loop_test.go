@@ -154,7 +154,10 @@ func TestOnceConfiguresTheRuntimeAndReports(t *testing.T) {
 	assert.EqualValues(t, 7, got.ObservedGeneration)
 	assert.True(t, got.Reconciled)
 	assert.True(t, got.ProxyListening)
-	assert.Equal(t, []string{"storage", "upstream"}, got.ActiveBackends)
+	assert.Equal(t, []string{
+		string(registryv1alpha1.BackendStorage),
+		string(registryv1alpha1.BackendUpstream),
+	}, got.ActiveBackends)
 }
 
 // TestOnceWithoutTheAPIStillConfiguresTheRuntime is the requirement the whole design
@@ -247,7 +250,7 @@ func TestOnceReportsOnlyUsableBackends(t *testing.T) {
 	loop.Usable = func(names []string) []string {
 		usable := make([]string, 0, len(names))
 		for _, name := range names {
-			if name != "storage" {
+			if name != string(registryv1alpha1.BackendStorage) {
 				usable = append(usable, name)
 			}
 		}
@@ -255,7 +258,7 @@ func TestOnceReportsOnlyUsableBackends(t *testing.T) {
 	}
 
 	require.NoError(t, loop.once(context.Background()))
-	assert.Equal(t, []string{"upstream"}, statusOf(t, kubeClient).ActiveBackends)
+	assert.Equal(t, []string{string(registryv1alpha1.BackendUpstream)}, statusOf(t, kubeClient).ActiveBackends)
 }
 
 // TestOnceIsIdempotent keeps a scheduled pass from rewriting the runtime configuration

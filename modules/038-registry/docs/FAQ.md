@@ -237,7 +237,7 @@ d8 k get registrystorage registry -o jsonpath='{.status}' | jq
 of itself. A replica reporting `full: true` alongside an `error` is not complete: `full` says
 what it holds, and the error says whether its last pass finished.
 
-`leader` is the replica filling from the upstream and acting as the replication source for the
+`Leader` is the replica filling from the upstream and acting as the replication source for the
 others. It is not a plain election — only a replica holding the whole set stands for it, and one
 holding it steps aside when another does. That condition is what keeps an air-gapped cluster
 from deadlocking with an empty leader and a full follower.
