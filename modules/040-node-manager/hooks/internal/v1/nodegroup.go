@@ -448,7 +448,10 @@ func (k Kubelet) IsEmpty() bool {
 
 type Fencing struct {
 	// Set custom settings for fencing controller
-	Mode     string           `json:"mode,omitempty"`
+	Mode string `json:"mode,omitempty"`
+	// Profile names the FencingSLAProfile the group reacts under. The CRD defaults
+	// it to Medium, so it is empty only for objects the API server did not default.
+	Profile  string           `json:"profile,omitempty"`
 	Watchdog *FencingWatchdog `json:"watchdog,omitempty"`
 }
 

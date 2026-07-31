@@ -2329,6 +2329,30 @@ spec:
                         - For static nodes (`Static`, `CloudStatic`), the controller only evicts workloads while keeping the Node object in the cluster.
 
                         For details on how fencing handles different node types, see [FAQ](faq.html#how-the-fencing-mechanism-handles-different-node-types).
+                    profile:
+                      type: string
+                      enum:
+                        - "Critical"
+                        - "Medium"
+                        - "Moderate"
+                        - "Slow"
+                      default: Medium
+                      description: |
+                        Reaction profile of fencing for the node group.
+
+                        The profile determines how quickly a node failure is detected, how long an isolated node that still reaches the Kubernetes API is protected from eviction, and how quickly a node that lost both quorum and API access is stopped by the watchdog. Target time from failure to the start of workload cleanup:
+
+                        - `Critical`: 2-3 seconds.
+                        - `Medium`: 10 seconds.
+                        - `Moderate`: 30 seconds.
+                        - `Slow`: 60 seconds.
+
+                        The exact timings of each profile are published as `FencingSLAProfile` objects and are managed by the module.
+
+                        A faster profile probes peers more often, so gossip traffic grows as the node group gets larger. Recommended upper bound by group size: up to 10 nodes — `Critical`, up to 100 nodes — `Medium`, 1000 nodes — `Moderate`. `Slow` suits a slow or congested network and large groups where an immediate reaction is not required.
+
+                        The selected profile is recorded in the `FencingFailedNodeState` object of an incident, so the decision to evict is always made using the timings that were in force when the failure was detected. Changing the profile restarts the fencing agents of the group.
+                      x-doc-default: Medium
                     watchdog:
                       type: object
                       properties:

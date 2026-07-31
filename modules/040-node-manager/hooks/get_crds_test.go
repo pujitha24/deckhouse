@@ -1441,6 +1441,7 @@ spec:
         node-group: worker
   fencing:
     mode: Watchdog
+    profile: Critical
 `
 	)
 
@@ -1453,6 +1454,9 @@ spec:
 		It("Internal fencing values should be generated", func() {
 			Expect(f).To(ExecuteSuccessfully())
 			Expect(f.ValuesGet("nodeManager.internal.nodeGroups.0.fencing.mode").Value()).To(Equal("Watchdog"))
+			// The profile reaches the fencing-agent DaemonSet through internal values,
+			// so a missing field here silently degrades every group to the template default.
+			Expect(f.ValuesGet("nodeManager.internal.nodeGroups.0.fencing.profile").Value()).To(Equal("Critical"))
 		})
 	})
 
