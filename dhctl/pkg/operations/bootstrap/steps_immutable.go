@@ -44,14 +44,20 @@ const (
 	immutableAPIPort = 6443
 
 	// immutableAPIWaitAttempts and immutableAPIWaitInterval bound the wait for
-	// the very first answer from the node — 30 minutes. Nothing has happened on
-	// the VM yet when this wait starts: it still has to install the OS onto its
-	// disk, reboot into it, pull three system extensions, start containerd and
-	// kubelet, generate the cluster PKI, pull four control-plane images and only
-	// then serve. The classic path spends its budget on "sshd answers", which is
-	// a fraction of that.
-	immutableAPIWaitAttempts = 60
-	immutableAPIWaitInterval = 30 * time.Second
+	// the node — 30 minutes. Nothing has happened on the VM yet when this wait
+	// starts: it still has to install the OS onto its disk, reboot into it, pull
+	// three system extensions, start containerd and kubelet, generate the
+	// cluster PKI, pull four control-plane images and only then serve. The
+	// classic path spends its budget on "sshd answers", which is a fraction of
+	// that.
+	//
+	// The interval is short because the node now answers with its progress from
+	// the moment it starts working: a poll is one cheap request, while a long
+	// one is dead time on the clock of every bootstrap. At thirty seconds a node
+	// that became ready right after a poll was left waiting for the rest of the
+	// interval, which is most of a minute added to the wall time for nothing.
+	immutableAPIWaitAttempts = 360
+	immutableAPIWaitInterval = 5 * time.Second
 
 	// immutableWaitAttempts and immutableWaitInterval bound everything that
 	// happens after the apiserver answers. Registering the Node is the node's
