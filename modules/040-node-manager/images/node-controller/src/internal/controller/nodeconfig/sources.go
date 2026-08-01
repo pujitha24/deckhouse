@@ -29,6 +29,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	discoveryv1 "k8s.io/api/discovery/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	sigsyaml "sigs.k8s.io/yaml"
@@ -202,7 +203,11 @@ func (s *sourceReader) readSandboxImage(ctx context.Context, imagesRepo string) 
 func (s *sourceReader) readNodeExtensionRequests(ctx context.Context) ([]deckhousev1alpha1.NodeExtensionRequest, error) {
 	list := &deckhousev1alpha1.NodeExtensionRequestList{}
 	if err := s.reader().List(ctx, list); err != nil {
-		if apierrors.IsNotFound(err) {
+		// A cluster without the CRD answers NoKindMatch rather than NotFound —
+		// the typed client cannot even map the kind. Both mean the same thing
+		// here: nobody has asked for an extra extension, so the node gets the
+		// base set.
+		if apierrors.IsNotFound(err) || meta.IsNoMatchError(err) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("list node extension requests: %w", err)
