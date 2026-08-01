@@ -130,6 +130,14 @@ func (b *ClusterBootstrapper) connectToImmutableMaster(ctx context.Context, bctx
 		return err
 	}
 
+	// Stored before anything else is attempted. These are the only credentials
+	// that will ever leave the node, and everything below — building a client,
+	// waiting up to half an hour for the API server — can fail. Losing them
+	// there would leave a running cluster nobody can reach.
+	if err := b.saveAdminKubeconfig(ctx, content); err != nil {
+		return err
+	}
+
 	kubeconfigPath, err := b.writeImmutableKubeconfig(ctx, b.TmpDir, content)
 	if err != nil {
 		return err
@@ -146,11 +154,9 @@ func (b *ClusterBootstrapper) connectToImmutableMaster(ctx context.Context, bctx
 		return fmt.Errorf("connect to the API server of the immutable master at %s: %w", server, err)
 	}
 
-	// Handed over only after the client above proved the credentials work, so
-	// what the operator gets is never a kubeconfig that cannot connect.
-	if err := b.saveAdminKubeconfig(ctx, content); err != nil {
-		return err
-	}
+	// The credentials are stored and proven to work, so the node may stop
+	// offering them.
+	b.confirmImmutableHandoff(ctx, bctx)
 
 	// The file holds admin credentials and is read exactly once, here: the
 	// runner behind this provider is the local one, which never reports a
@@ -195,12 +201,32 @@ func (b *ClusterBootstrapper) collectImmutableKubeconfig(ctx context.Context, bc
 		Material:   material,
 	}
 
-	var kubeconfig []byte
-	err = libretry.NewLoop("Waiting for the first master to hand over the cluster credentials", immutableAPIWaitAttempts, immutableAPIWaitInterval).
+	// The wait is narrated rather than silent: the node answers the status
+	// endpoint from the moment it starts working, so an operator watching a
+	// bootstrap sees "generating the cluster PKI" instead of nothing at all,
+	// and a node that fails says why instead of just staying unreachable.
+	logger := dhlog.FromContext(ctx)
+	var (
+		kubeconfig  []byte
+		lastMessage string
+	)
+	err = libretry.NewLoop("Waiting for the first master to bring the control plane up", immutableAPIWaitAttempts, immutableAPIWaitInterval).
 		BreakIf(func(err error) bool {
 			return errors.Is(err, immutable.ErrHandoffUnauthorized) || errors.Is(err, immutable.ErrHandoffAlreadyServed)
 		}).
 		RunContext(ctx, func() error {
+			status, err := immutable.FetchStatus(ctx, input)
+			if err != nil {
+				return err
+			}
+			if message := statusLine(status); message != lastMessage {
+				lastMessage = message
+				logger.InfoContext(ctx, fmt.Sprintf("The first master reports: %s", message))
+			}
+			if status.Phase != immutable.PhaseReady && status.Phase != immutable.PhaseCollected {
+				return fmt.Errorf("the first master is not ready to hand the credentials over: %s", statusLine(status))
+			}
+
 			collected, err := immutable.FetchKubeconfig(ctx, input)
 			if err != nil {
 				return err
@@ -348,6 +374,41 @@ func drainTunnelErrors(ctx context.Context, tunnel libcon.Tunnel) func() {
 	return func() { close(done) }
 }
 
+// statusLine renders what the node reports into one readable line.
+func statusLine(status *immutable.Status) string {
+	if status.Message == "" {
+		return status.Phase
+	}
+	return status.Phase + ": " + status.Message
+}
+
+// confirmImmutableHandoff tells the node the credentials are safely stored, and
+// only then does the node stop offering them. Reported rather than returned:
+// the kubeconfig is already on disk by this point, so a failed confirmation
+// costs a node that keeps its channel open, not a lost cluster.
+func (b *ClusterBootstrapper) confirmImmutableHandoff(ctx context.Context, bctx *bootstrapContext) {
+	material, err := immutable.LoadHandoffMaterial(ctx, bctx.stateCache)
+	if err != nil || material == nil {
+		return
+	}
+
+	address, stop, err := b.openImmutableChannel(ctx, bctx, immutable.HandoffPort, "handoff confirmation")
+	if err != nil {
+		dhlog.FromContext(ctx).WarnContext(ctx, fmt.Sprintf("could not confirm the handover to the first master: %v", err))
+		return
+	}
+	if stop != nil {
+		defer stop()
+	}
+
+	input := immutable.FetchKubeconfigInput{Address: address, ServerName: bctx.masterNodeName, Material: material}
+	if err := immutable.ConfirmCollected(ctx, input); err != nil {
+		dhlog.FromContext(ctx).WarnContext(ctx, fmt.Sprintf("could not confirm the handover to the first master, it will keep the bootstrap channel open: %v", err))
+		return
+	}
+	dhlog.FromContext(ctx).InfoContext(ctx, "Confirmed the handover; the first master closed its bootstrap channel.")
+}
+
 // writeImmutableKubeconfig stores the collected admin kubeconfig in a file the
 // Kubernetes client can be built from, with its server URL pointed at the
 // address dhctl reaches the API on.
@@ -389,11 +450,30 @@ func (b *ClusterBootstrapper) saveAdminKubeconfig(ctx context.Context, content [
 		path = filepath.Join(b.TmpDir, cache.AdminKubeconfigName)
 	}
 
-	if err := os.WriteFile(path, content, 0o600); err != nil {
+	// O_EXCL is deliberately not used: a rerun of the same bootstrap must be able
+	// to refresh the file. The mode is set explicitly because WriteFile applies
+	// it only when creating, and these are cluster-admin credentials.
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	if err != nil {
+		return fmt.Errorf("create the admin kubeconfig %s: %w", path, err)
+	}
+	if _, err := file.Write(content); err != nil {
+		file.Close()
 		return fmt.Errorf("write the admin kubeconfig to %s: %w", path, err)
 	}
-	dhlog.FromContext(ctx).InfoContext(ctx, fmt.Sprintf("Admin kubeconfig written to %s — it holds cluster-admin credentials, "+
-		"and on a cluster of immutable nodes it is the only way in.", path))
+	if err := file.Close(); err != nil {
+		return fmt.Errorf("write the admin kubeconfig to %s: %w", path, err)
+	}
+	if err := os.Chmod(path, 0o600); err != nil {
+		return fmt.Errorf("restrict the admin kubeconfig %s: %w", path, err)
+	}
+
+	// The equivalent of the SSH line the classic bootstrap prints: on a cluster
+	// of immutable nodes there is no SSH, and this file is the only way in.
+	logger := dhlog.FromContext(ctx)
+	logger.InfoContext(ctx, fmt.Sprintf("Admin kubeconfig written to %s — cluster-admin credentials, "+
+		"and on a cluster of immutable nodes the only way in.", path))
+	logger.InfoContext(ctx, fmt.Sprintf("To use the cluster:  export KUBECONFIG=%s && kubectl get nodes", path))
 	return nil
 }
 

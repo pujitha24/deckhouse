@@ -20,6 +20,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -41,8 +42,12 @@ const (
 	// HandoffPort is the port the node's one-shot handoff endpoint listens on.
 	HandoffPort = 50001
 
-	// handoffPath is the endpoint the admin kubeconfig is served from.
-	handoffPath = "/bootstrap/kubeconfig"
+	// statusPath, handoffPath and collectedPath are the node's bootstrap
+	// channel: what it is doing, the credentials, and the confirmation that
+	// ends the handover.
+	statusPath    = "/bootstrap/status"
+	handoffPath   = "/bootstrap/kubeconfig"
+	collectedPath = "/bootstrap/collected"
 
 	// handoffCACommonName names the throwaway CA behind the endpoint's
 	// certificate.
@@ -224,12 +229,64 @@ type FetchKubeconfigInput struct {
 	Material *HandoffMaterial
 }
 
-// FetchKubeconfig collects the admin kubeconfig from the node's handoff
-// endpoint. One attempt: the endpoint appears only once the node has installed
-// itself and brought a control plane up, so the caller retries.
+// Status is what the node reports about its own bootstrap.
+type Status struct {
+	Phase    string `json:"phase"`
+	Message  string `json:"message,omitempty"`
+	NodeName string `json:"nodeName,omitempty"`
+}
+
+// Phases the node reports. PhaseReady means the kubeconfig can be collected.
+const (
+	PhasePreparing = "Preparing"
+	PhaseReady     = "Ready"
+	PhaseFailed    = "Failed"
+	PhaseCollected = "Collected"
+)
+
+// FetchStatus asks the node what it is doing. The channel opens when the node
+// starts the work, so this answers long before there is a kubeconfig — which is
+// the point: without it the installer cannot tell a node that is still
+// generating its PKI from one that died on the first image pull.
+func FetchStatus(ctx context.Context, in FetchKubeconfigInput) (*Status, error) {
+	body, err := in.call(ctx, http.MethodGet, statusPath)
+	if err != nil {
+		return nil, err
+	}
+	status := &Status{}
+	if err := json.Unmarshal(body, status); err != nil {
+		return nil, fmt.Errorf("parse the bootstrap status from the node: %w", err)
+	}
+	return status, nil
+}
+
+// FetchKubeconfig collects the admin kubeconfig from the node. Collecting does
+// not end the handover — ConfirmCollected does — so an installer whose
+// connection dies mid-read can simply ask again.
 func FetchKubeconfig(ctx context.Context, in FetchKubeconfigInput) ([]byte, error) {
+	body, err := in.call(ctx, http.MethodGet, handoffPath)
+	if err != nil {
+		return nil, err
+	}
+	if len(body) == 0 {
+		return nil, fmt.Errorf("the handoff endpoint returned an empty admin kubeconfig")
+	}
+	return body, nil
+}
+
+// ConfirmCollected tells the node the kubeconfig is safely in hand. Only this
+// ends the handover: until it arrives the node keeps the channel open, because
+// a response that reached the socket says nothing about whether the installer
+// kept it.
+func ConfirmCollected(ctx context.Context, in FetchKubeconfigInput) error {
+	_, err := in.call(ctx, http.MethodPost, collectedPath)
+	return err
+}
+
+// call performs one authenticated request against the node's bootstrap channel.
+func (in FetchKubeconfigInput) call(ctx context.Context, method, path string) ([]byte, error) {
 	if in.Address == "" || in.ServerName == "" || in.Material == nil {
-		return nil, fmt.Errorf("fetch the admin kubeconfig: address, server name or handoff material is empty")
+		return nil, fmt.Errorf("reach the node's bootstrap channel: address, server name or handoff material is empty")
 	}
 
 	roots := x509.NewCertPool()
@@ -237,9 +294,9 @@ func FetchKubeconfig(ctx context.Context, in FetchKubeconfigInput) ([]byte, erro
 		return nil, fmt.Errorf("the handoff CA certificate PEM holds no certificate")
 	}
 
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://"+in.Address+handoffPath, nil)
+	request, err := http.NewRequestWithContext(ctx, method, "https://"+in.Address+path, nil)
 	if err != nil {
-		return nil, fmt.Errorf("build the handoff request: %w", err)
+		return nil, fmt.Errorf("build the request to the node's bootstrap channel: %w", err)
 	}
 	request.Header.Set("Authorization", "Bearer "+in.Material.Token)
 
@@ -257,26 +314,23 @@ func FetchKubeconfig(ctx context.Context, in FetchKubeconfigInput) ([]byte, erro
 
 	response, err := client.Do(request)
 	if err != nil {
-		return nil, fmt.Errorf("reach the handoff endpoint at %s: %w", in.Address, err)
+		return nil, fmt.Errorf("reach the node's bootstrap channel at %s: %w", in.Address, err)
 	}
 	defer response.Body.Close()
 
 	body, err := io.ReadAll(io.LimitReader(response.Body, handoffResponseLimit))
 	if err != nil {
-		return nil, fmt.Errorf("read the admin kubeconfig from the handoff endpoint: %w", err)
+		return nil, fmt.Errorf("read the answer from the node's bootstrap channel: %w", err)
 	}
 
 	switch response.StatusCode {
-	case http.StatusOK:
-		if len(body) == 0 {
-			return nil, fmt.Errorf("the handoff endpoint returned an empty admin kubeconfig")
-		}
+	case http.StatusOK, http.StatusNoContent:
 		return body, nil
 	case http.StatusUnauthorized:
 		return nil, ErrHandoffUnauthorized
 	case http.StatusGone:
 		return nil, ErrHandoffAlreadyServed
 	default:
-		return nil, fmt.Errorf("the handoff endpoint answered %s: %s", response.Status, strings.TrimSpace(string(body)))
+		return nil, fmt.Errorf("the node's bootstrap channel answered %s: %s", response.Status, strings.TrimSpace(string(body)))
 	}
 }
