@@ -132,14 +132,79 @@ func storageIsExplicit(storage *internalv1alpha1.Storage) bool {
 // config replaces the bootstrap one wholesale, and a key that disappears from
 // the desired state is restored to its pre-managed value — dropping
 // kernel.panic here would stop kubelet from starting after the next restart.
+// renderKernel is the tuning every node of the cluster gets. It mirrors what
+// bashible applies from its sysctl-tuner on a mutable node, because the
+// defaults of a stock kernel are wrong for a node running hundreds of pods —
+// and wrong in ways that surface under load rather than at boot, when the
+// cluster gets blamed instead of the missing setting.
+//
+// One value is deliberately absent: net.netfilter.nf_conntrack_max is derived
+// from the node's core count, which is a fact of the machine. The agent
+// computes it there.
 func renderKernel() internalv1alpha1.Kernel {
 	return internalv1alpha1.Kernel{
 		Sysctl: map[string]internalv1alpha1.SysctlValue{
-			"net.ipv4.ip_forward": "1",
-			"vm.max_map_count":    "262144",
 			// kubelet refuses to start without these (protect-kernel-defaults).
 			"kernel.panic":         "10",
 			"kernel.panic_on_oops": "1",
+			"vm.max_map_count":     "262144",
+
+			// Routing between pods and the outside world.
+			"net.ipv4.ip_forward":          "1",
+			"net.ipv4.conf.all.forwarding": "1",
+			// Reverse-path filtering drops the asymmetric paths a CNI creates;
+			// cilium requires it off. "default" covers interfaces that do not
+			// exist yet — every pod veth is one of them.
+			"net.ipv4.conf.all.rp_filter":     "0",
+			"net.ipv4.conf.default.rp_filter": "0",
+
+			// Watches are per-user and shared by every pod on the node: the
+			// stock limits are exhausted by a handful of operators, and what
+			// the pods report is "too many open files".
+			"fs.inotify.max_user_instances": "5120",
+			"fs.inotify.max_user_watches":   "524288",
+			"fs.may_detach_mounts":          "1",
+
+			// A node full of pods runs out of the default pid_max long before
+			// it runs out of memory.
+			"kernel.pid_max": "2000000",
+			// NUMA balancing migrates pages under memory pressure, which shows
+			// up as latency nobody can attribute.
+			"kernel.numa_balancing": "0",
+
+			// The ARP table is sized for a workstation. A cluster of a few
+			// hundred nodes overflows it, and the symptom is packet loss to
+			// arbitrary destinations.
+			"net.ipv4.neigh.default.gc_thresh1": "16384",
+			"net.ipv4.neigh.default.gc_thresh2": "28672",
+			"net.ipv4.neigh.default.gc_thresh3": "32768",
+
+			// Receive path: the backlog is what absorbs a burst between the NIC
+			// ring buffer and the stack.
+			"net.core.netdev_max_backlog": "5000",
+			"net.core.somaxconn":          "1000",
+			"net.core.rmem_max":           "16777216",
+			"net.core.wmem_max":           "16777216",
+			"net.core.bpf_jit_harden":     "1",
+
+			// Connection churn between pods is high and short-lived; the stock
+			// TCP defaults are tuned for the opposite.
+			"net.ipv4.tcp_rmem":                  "4096 12582912 16777216",
+			"net.ipv4.tcp_wmem":                  "4096 12582912 16777216",
+			"net.ipv4.tcp_max_syn_backlog":       "8096",
+			"net.ipv4.tcp_slow_start_after_idle": "0",
+			"net.ipv4.tcp_tw_reuse":              "1",
+			"net.ipv4.tcp_no_metrics_save":       "1",
+			"net.ipv4.ip_local_port_range":       "32768 61000",
+
+			// Memory: overcommit is what kubelet's ContainerManager expects,
+			// and the dirty ratios keep a writeback storm from stalling the
+			// node.
+			"vm.overcommit_memory":      "1",
+			"vm.min_free_kbytes":        "131072",
+			"vm.dirty_ratio":            "80",
+			"vm.dirty_background_ratio": "5",
+			"vm.dirty_expire_centisecs": "12000",
 		},
 	}
 }

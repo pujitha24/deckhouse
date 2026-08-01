@@ -136,3 +136,34 @@ func TestRenderNodeLabelsDropsWhatKubeletRefuses(t *testing.T) {
 		require.Contains(t, labels, kept)
 	}
 }
+
+// The tuning a node needs to survive load, not just to boot. Every one of these
+// is absent from a stock kernel in a way that shows up only under pressure —
+// pods failing on inotify limits, packet loss from an overflowed ARP table —
+// when the cluster gets blamed instead of the missing setting.
+func TestRenderKernelCarriesTheTuningANodeNeeds(t *testing.T) {
+	sysctl := renderKernel().Sysctl
+
+	required := map[string]string{
+		"fs.inotify.max_user_instances":     "5120",
+		"fs.inotify.max_user_watches":       "524288",
+		"kernel.pid_max":                    "2000000",
+		"net.ipv4.neigh.default.gc_thresh3": "32768",
+		"net.core.somaxconn":                "1000",
+		"vm.overcommit_memory":              "1",
+		"vm.min_free_kbytes":                "131072",
+		// cilium needs reverse-path filtering off, and "default" is what covers
+		// the pod interfaces that do not exist yet.
+		"net.ipv4.conf.all.rp_filter":     "0",
+		"net.ipv4.conf.default.rp_filter": "0",
+		// kubelet refuses to start without these.
+		"kernel.panic":         "10",
+		"kernel.panic_on_oops": "1",
+	}
+	for key, want := range required {
+		require.Equal(t, internalv1alpha1.SysctlValue(want), sysctl[key], "sysctl %s", key)
+	}
+
+	// Derived from the node's core count, so the cluster must not guess it.
+	require.NotContains(t, sysctl, "net.netfilter.nf_conntrack_max")
+}
