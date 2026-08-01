@@ -432,6 +432,13 @@ func (b *ClusterBootstrapper) confirmImmutableHandoff(ctx context.Context, bctx 
 		return
 	}
 	dhlog.FromContext(ctx).InfoContext(ctx, "Confirmed the handover; the first master closed its bootstrap channel.")
+
+	// The material has done its job, and what it holds is the private key behind
+	// a cluster-admin certificate. Kept, it outlives the bootstrap in the state
+	// cache — which for dhctl-server is a Secret in the management cluster, for
+	// as long as that object exists. The confirmation is the right moment: the
+	// kubeconfig is already on disk and the channel is shut.
+	bctx.stateCache.Delete(ctx, immutable.HandoffCacheKey)
 }
 
 // writeImmutableKubeconfig stores the collected admin kubeconfig in a file the
@@ -475,10 +482,15 @@ func (b *ClusterBootstrapper) saveAdminKubeconfig(ctx context.Context, content [
 		path = filepath.Join(b.TmpDir, cache.AdminKubeconfigName)
 	}
 
-	// O_EXCL is deliberately not used: a rerun of the same bootstrap must be able
-	// to refresh the file. The mode is set explicitly because WriteFile applies
-	// it only when creating, and these are cluster-admin credentials.
-	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	// Removed rather than truncated, then created fresh with O_EXCL. Writing
+	// into whatever is already at that path would inherit its mode: a rerun over
+	// a file left at 0644 puts cluster-admin credentials on disk world-readable
+	// for as long as it takes to widen them back, and follows a symlink someone
+	// else put there. O_EXCL is safe here because the path was just cleared.
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("replace the admin kubeconfig %s: %w", path, err)
+	}
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		return fmt.Errorf("create the admin kubeconfig %s: %w", path, err)
 	}
@@ -489,10 +501,6 @@ func (b *ClusterBootstrapper) saveAdminKubeconfig(ctx context.Context, content [
 	if err := file.Close(); err != nil {
 		return fmt.Errorf("write the admin kubeconfig to %s: %w", path, err)
 	}
-	if err := os.Chmod(path, 0o600); err != nil {
-		return fmt.Errorf("restrict the admin kubeconfig %s: %w", path, err)
-	}
-
 	// The equivalent of the SSH line the classic bootstrap prints: on a cluster
 	// of immutable nodes there is no SSH, and this file is the only way in.
 	logger := dhlog.FromContext(ctx)

@@ -62,10 +62,10 @@ type clusterInputs struct {
 	// network — has no route to the upstream one, and a node that cannot pull
 	// the pause image runs no pods at all.
 	SandboxImage string
-	// Registry is how a node reaches the cluster's registry on its own. Only
-	// control-plane nodes are given it, because only they run pods nobody
-	// attaches an imagePullSecret to: the control-plane static pods. Everything
-	// else pulls with the secret its pod carries, or through the packages proxy.
+	// Registry is how a node reaches the cluster's registry on its own. Every
+	// node gets it, not only the control-plane ones: containerd pulls the pause
+	// image before any pod exists and with no imagePullSecret to use, so a worker
+	// without credentials fails every sandbox it tries to create.
 	Registry *internalv1alpha1.Registry
 	// NodeExtensionRequests are the operator's requests to merge extra system
 	// extensions onto the nodes they select.

@@ -92,17 +92,22 @@ func renderStorage() internalv1alpha1.Storage {
 // dhctl payload rather than from a rendered NodeConfig, and where each of them
 // carries a decision the cluster cannot reproduce:
 //
-//   - registry: the direct registry access it pulls the control-plane images
-//     with. There is no registry-packages-proxy while it is bringing the cluster
-//     up, and no proxy afterwards either for the static pods, which have no
-//     imagePullSecrets.
-//   - kubelet.serverTLSBootstrap: turned off, because nothing approved serving
-//     CSRs before Deckhouse was installed. Turning it back on leaves kubelet
-//     waiting for a certificate and the node never Ready.
 //   - kubelet.nodeIP, kubelet.resourceReservation: set by the payload, not
 //     derived from anything in the cluster.
 //   - storage: the master picks its system disk by size, because it has two
 //     disks and "the first non-CDROM one" is not the answer there.
+//
+// Two fields the payload also sets are deliberately NOT carried over, and both
+// used to be:
+//
+//   - registry: the render produces it for every node from the cluster's own
+//     registry secret, so preserving the bootstrap copy would pin the first
+//     master to whatever the installer was told months earlier.
+//   - kubelet.serverTLSBootstrap: the payload turns it off because nothing
+//     approves serving CSRs before Deckhouse exists. Once Deckhouse is there
+//     something does, and keeping it off forever left the master with a
+//     self-signed serving certificate carrying no IP — which is kubectl exec
+//     and kubectl logs broken against that node, for the life of the cluster.
 //
 // It is applied to every node rather than only to control-plane ones: on a node
 // the controller itself provisioned these are empty on both sides, so the rule

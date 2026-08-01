@@ -23,10 +23,13 @@ import (
 // RetargetKubeconfig points the collected admin kubeconfig at the address dhctl
 // reaches the API server on.
 //
-// The node writes that kubeconfig for its own use, so its server URL is the
-// node-local kube-api-proxy on 127.0.0.1:6445 — an address that means nothing
-// anywhere else. Everything else in the file, the cluster CA and the client
-// certificate included, is used as it came.
+// The node puts its own address in the file, which is the right one for an
+// operator and the wrong one for this process when it reaches the master
+// through a bastion: there the API server is a local forward that exists only
+// while the bootstrap runs. So the retargeted copy is the internal one — the
+// copy handed to the operator keeps the node's address (see
+// saveAdminKubeconfig). Everything else in the file, the cluster CA and the
+// client certificate included, is used as it came.
 func RetargetKubeconfig(content []byte, server string) ([]byte, error) {
 	if server == "" {
 		return nil, fmt.Errorf("retarget the admin kubeconfig: server URL is empty")
