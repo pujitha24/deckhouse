@@ -20,8 +20,10 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 
+	v1 "github.com/deckhouse/node-controller/api/deckhouse.io/v1"
 	internalv1alpha1 "github.com/deckhouse/node-controller/api/internal.deckhouse.io/v1alpha1"
 )
 
@@ -100,5 +102,37 @@ func TestKeepBootstrapOnlyFields(t *testing.T) {
 			require.Equal(t, "master-0", desired.NodeName)
 			require.Equal(t, defaultMaxPods, desired.Kubelet.MaxPods)
 		})
+	}
+}
+
+// kubelet exits when --node-labels carries a label it may not accept, so a node
+// whose group template names one comes up with no kubelet at all. The master
+// group names two of them.
+func TestRenderNodeLabelsDropsWhatKubeletRefuses(t *testing.T) {
+	ng := &v1.NodeGroup{
+		ObjectMeta: metav1.ObjectMeta{Name: "master"},
+		Spec: v1.NodeGroupSpec{
+			NodeType: v1.NodeTypeCloudPermanent,
+			NodeTemplate: &v1.NodeTemplate{
+				Labels: map[string]string{
+					"node-role.kubernetes.io/control-plane": "",
+					"node-role.kubernetes.io/master":        "",
+					"node.deckhouse.io/group":               "master",
+					"topology.kubernetes.io/zone":           "eu-1a",
+					"node.kubernetes.io/instance-type":      "m1",
+					"example.com/team":                      "candi",
+				},
+			},
+		},
+	}
+
+	labels := renderNodeLabels(ng)
+
+	for _, refused := range []string{"node-role.kubernetes.io/control-plane", "node-role.kubernetes.io/master"} {
+		_, present := labels[refused]
+		require.False(t, present, "%s must not reach --node-labels", refused)
+	}
+	for _, kept := range []string{"node.deckhouse.io/group", "topology.kubernetes.io/zone", "node.kubernetes.io/instance-type", "example.com/team"} {
+		require.Contains(t, labels, kept)
 	}
 }

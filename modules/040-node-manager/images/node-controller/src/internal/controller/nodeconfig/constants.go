@@ -97,6 +97,16 @@ const (
 	// was given.
 	phaseReady = "Ready"
 
+	// kubernetesLabelNamespace and k8sLabelNamespace are the label namespaces a
+	// node may not put itself into, beyond kubeletAllowedLabels below.
+	kubernetesLabelNamespace = "kubernetes.io"
+	k8sLabelNamespace        = "k8s.io"
+
+	// kubeletLabelNamespace and nodeLabelNamespace are the two prefixes inside
+	// them that kubelet does accept from a node.
+	kubeletLabelNamespace = "kubelet.kubernetes.io"
+	nodeLabelNamespace    = "node.kubernetes.io"
+
 	// controlPlaneRoleLabel marks a node that runs the control plane. Such a
 	// node was provisioned from an installer payload rather than from a
 	// rendered NodeConfig, and parts of that payload cannot be reproduced here.
@@ -133,3 +143,21 @@ const (
 	defaultSandboxImage           = "registry.k8s.io/pause:3.10"
 	defaultMaxConcurrentDownloads = 3
 )
+
+// kubeletAllowedLabels is the set kubelet accepts on --node-labels despite
+// living in a reserved namespace (kubernetes/pkg/kubelet/apis/well_known_labels.go).
+var kubeletAllowedLabels = map[string]struct{}{
+	"beta.kubernetes.io/arch":                  {},
+	"beta.kubernetes.io/instance-type":         {},
+	"beta.kubernetes.io/os":                    {},
+	"failure-domain.beta.kubernetes.io/region": {},
+	"failure-domain.beta.kubernetes.io/zone":   {},
+	"failure-domain.kubernetes.io/region":      {},
+	"failure-domain.kubernetes.io/zone":        {},
+	"kubernetes.io/arch":                       {},
+	"kubernetes.io/hostname":                   {},
+	"kubernetes.io/os":                         {},
+	"node.kubernetes.io/instance-type":         {},
+	"topology.kubernetes.io/region":            {},
+	"topology.kubernetes.io/zone":              {},
+}

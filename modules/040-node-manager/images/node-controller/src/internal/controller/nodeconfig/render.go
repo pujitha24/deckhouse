@@ -18,6 +18,7 @@ package nodeconfig
 
 import (
 	"sort"
+	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -231,10 +232,38 @@ func renderNodeLabels(ng *v1.NodeGroup) map[string]internalv1alpha1.NodeLabelVal
 	}
 	if ng.Spec.NodeTemplate != nil {
 		for key, value := range ng.Spec.NodeTemplate.Labels {
+			if !kubeletMaySetLabel(key) {
+				continue
+			}
 			labels[key] = internalv1alpha1.NodeLabelValue(value)
 		}
 	}
 	return labels
+}
+
+// kubeletMaySetLabel reports whether kubelet accepts the label on --node-labels.
+//
+// A node may not label itself into the kubernetes.io or k8s.io namespaces
+// beyond a fixed set, and kubelet does not ignore the ones it refuses: it
+// exits, so a single such label in a NodeGroup template leaves the node with no
+// kubelet at all. The master template carries exactly that —
+// node-role.kubernetes.io/control-plane and .../master. Those labels still
+// reach the Node, applied by the cluster through the node template controller,
+// which is the only side allowed to grant a node its role.
+func kubeletMaySetLabel(key string) bool {
+	namespace, _, found := strings.Cut(key, "/")
+	if !found {
+		return true
+	}
+	if namespace != kubernetesLabelNamespace && namespace != k8sLabelNamespace &&
+		!strings.HasSuffix(namespace, "."+kubernetesLabelNamespace) && !strings.HasSuffix(namespace, "."+k8sLabelNamespace) {
+		return true
+	}
+	if namespace == kubeletLabelNamespace || namespace == nodeLabelNamespace {
+		return true
+	}
+	_, allowed := kubeletAllowedLabels[key]
+	return allowed
 }
 
 func renderTaints(ng *v1.NodeGroup) []internalv1alpha1.Taint {
