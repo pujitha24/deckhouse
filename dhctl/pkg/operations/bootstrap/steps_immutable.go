@@ -145,16 +145,21 @@ func (b *ClusterBootstrapper) connectToImmutableMaster(ctx context.Context, bctx
 		return err
 	}
 
-	content, err := immutable.RetargetKubeconfig(complete, server)
-	if err != nil {
-		return err
-	}
-
 	// Stored before anything else is attempted. These are the only credentials
 	// that will ever leave the node, and everything below — building a client,
 	// waiting up to half an hour for the API server — can fail. Losing them
 	// there would leave a running cluster nobody can reach.
-	if err := b.saveAdminKubeconfig(ctx, content); err != nil {
+	//
+	// The operator's copy keeps the address the node put in it: its own. The
+	// retargeted one below points at a tunnel this process owns, which stops
+	// existing the moment the bootstrap ends — saving that one would hand over a
+	// kubeconfig that works exactly until it is needed.
+	if err := b.saveAdminKubeconfig(ctx, complete); err != nil {
+		return err
+	}
+
+	content, err := immutable.RetargetKubeconfig(complete, server)
+	if err != nil {
 		return err
 	}
 
