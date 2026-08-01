@@ -46,24 +46,21 @@ func renderSpec(ng *v1.NodeGroup, node *corev1.Node, in clusterInputs) internalv
 		Network:                             renderNetwork(node),
 		Kubelet:                             renderKubelet(ng, node, in),
 		ContainerRuntime:                    renderContainerRuntime(ng, in),
-		Registry:                            renderRegistry(node, in),
+		Registry:                            renderRegistry(in),
 		UpdatePolicy:                        renderUpdatePolicy(ng),
 		RegistryPackagesProxyAccessTokenB64: in.RegistryPackagesProxyToken,
 	}
 	return spec
 }
 
-// renderRegistry gives control-plane nodes their own way to the registry.
+// renderRegistry gives every node its own way to the cluster's registry.
 //
-// They are the only nodes that need one: the control-plane static pods carry no
-// imagePullSecret, so nothing but the node's own containerd configuration can
-// authenticate their image pulls. Every other node pulls with the secret its
-// pod carries, or through the registry packages proxy, and handing it registry
-// credentials it never uses would only widen what a compromised node holds.
-func renderRegistry(node *corev1.Node, in clusterInputs) *internalv1alpha1.Registry {
-	if _, isControlPlane := node.Labels[controlPlaneRoleLabel]; !isControlPlane {
-		return nil
-	}
+// Not only the control-plane ones: containerd pulls the pause image behind
+// every pod sandbox itself, with no pod and therefore no imagePullSecret to
+// authenticate with. A node without these credentials cannot start a single
+// sandbox once the pause image lives in a private registry, which is what a
+// closed-network installation looks like.
+func renderRegistry(in clusterInputs) *internalv1alpha1.Registry {
 	return in.Registry
 }
 
