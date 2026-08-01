@@ -137,7 +137,9 @@ const defaultOSImage = "registry.deckhouse.io/deckhouse/olcedar:v0.1"
 // creating it through the API server, where CRD defaulting runs — produces the
 // same values as a day-2 object.
 const (
-	defaultMaxPods                = 110
+	defaultMaxPods = 110
+	// maxPodsCeiling is what the agent's schema accepts (Maximum=500).
+	maxPodsCeiling                = 500
 	defaultContainerLogMaxSize    = "50Mi"
 	defaultContainerLogMaxFiles   = 4
 	defaultSandboxImage           = "registry.k8s.io/pause:3.10"
@@ -152,8 +154,6 @@ var kubeletAllowedLabels = map[string]struct{}{
 	"beta.kubernetes.io/os":                    {},
 	"failure-domain.beta.kubernetes.io/region": {},
 	"failure-domain.beta.kubernetes.io/zone":   {},
-	"failure-domain.kubernetes.io/region":      {},
-	"failure-domain.kubernetes.io/zone":        {},
 	"kubernetes.io/arch":                       {},
 	"kubernetes.io/hostname":                   {},
 	"kubernetes.io/os":                         {},

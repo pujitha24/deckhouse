@@ -20,6 +20,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 
@@ -166,4 +167,57 @@ func TestRenderKernelCarriesTheTuningANodeNeeds(t *testing.T) {
 
 	// Derived from the node's core count, so the cluster must not guess it.
 	require.NotContains(t, sysctl, "net.netfilter.nf_conntrack_max")
+}
+
+// Settings a NodeGroup accepts but the agent's schema does not. Passing them
+// through renders a NodeConfig the API server rejects, and a node whose config
+// is rejected never receives one — so a setting meant to tune the node takes it
+// out of the cluster instead.
+func TestRenderSurvivesSettingsTheAgentSchemaRejects(t *testing.T) {
+	ng := &v1.NodeGroup{
+		ObjectMeta: metav1.ObjectMeta{Name: "worker"},
+		Spec: v1.NodeGroupSpec{
+			NodeType:    v1.NodeTypeCloudEphemeral,
+			Disruptions: &v1.DisruptionsSpec{ApprovalMode: v1.DisruptionApprovalModeRollingUpdate},
+			Kubelet:     &v1.KubeletSpec{MaxPods: ptr.To(int32(1000))},
+		},
+	}
+
+	// RollingUpdate has no counterpart on the node; the agent knows Manual and
+	// Automatic only.
+	require.Equal(t, string(v1.DisruptionApprovalModeAutomatic), renderUpdatePolicy(ng).Mode)
+
+	// The documentation suggests 1000 for a /21 pod subnet; the schema stops at
+	// 500. A ceiling is a better answer than no config at all.
+	require.Equal(t, maxPodsCeiling, renderKubelet(ng, &corev1.Node{}, clusterInputs{}).MaxPods)
+}
+
+// kubelet compares label namespaces by suffix. Equality here dropped legal
+// labels silently, and let through two that do not exist upstream at all —
+// which kubelet refuses, taking the node down with it.
+func TestKubeletMaySetLabelFollowsKubeletsOwnRule(t *testing.T) {
+	allowed := []string{
+		"node.deckhouse.io/group",
+		"example.com/team",
+		"topology.kubernetes.io/zone",
+		"node.kubernetes.io/instance-type",
+		// Under an allowed prefix: kubelet accepts it, so must we.
+		"myprefix.node.kubernetes.io/foo",
+		"myprefix.kubelet.kubernetes.io/bar",
+	}
+	for _, key := range allowed {
+		require.True(t, kubeletMaySetLabel(key), "kubelet accepts %s", key)
+	}
+
+	refused := []string{
+		"node-role.kubernetes.io/control-plane",
+		"node-role.kubernetes.io/master",
+		"kubernetes.io/anything-else",
+		// No GA spelling of these exists; kubelet exits on them.
+		"failure-domain.kubernetes.io/zone",
+		"failure-domain.kubernetes.io/region",
+	}
+	for _, key := range refused {
+		require.False(t, kubeletMaySetLabel(key), "kubelet refuses %s", key)
+	}
 }

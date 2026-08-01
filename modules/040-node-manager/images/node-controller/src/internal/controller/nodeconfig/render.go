@@ -268,7 +268,12 @@ func renderKubelet(ng *v1.NodeGroup, node *corev1.Node, in clusterInputs) intern
 
 	if ng.Spec.Kubelet != nil {
 		if ng.Spec.Kubelet.MaxPods != nil {
-			kubelet.MaxPods = int(*ng.Spec.Kubelet.MaxPods)
+			// Clamped, not passed through: a NodeGroup has no maximum and the
+			// documentation suggests 1000 for a /21 pod subnet, while the agent's
+			// schema stops at 500. Over it the API server rejects the whole
+			// config, and the node is left without one — a worse answer to "too
+			// many pods" than the ceiling itself.
+			kubelet.MaxPods = min(int(*ng.Spec.Kubelet.MaxPods), maxPodsCeiling)
 		}
 		if ng.Spec.Kubelet.ContainerLogMaxSize != "" {
 			kubelet.ContainerLogMaxSize = ng.Spec.Kubelet.ContainerLogMaxSize
@@ -315,16 +320,28 @@ func renderNodeLabels(ng *v1.NodeGroup) map[string]internalv1alpha1.NodeLabelVal
 // node-role.kubernetes.io/control-plane and .../master. Those labels still
 // reach the Node, applied by the cluster through the node template controller,
 // which is the only side allowed to grant a node its role.
+func isReservedNamespace(namespace string) bool {
+	return reservedNamespaceMatches(namespace, kubernetesLabelNamespace) || reservedNamespaceMatches(namespace, k8sLabelNamespace)
+}
+
+// reservedNamespaceMatches repeats how kubelet compares a label namespace with
+// one it knows: the namespace itself, or anything under it.
+func reservedNamespaceMatches(namespace, known string) bool {
+	return namespace == known || strings.HasSuffix(namespace, "."+known)
+}
+
 func kubeletMaySetLabel(key string) bool {
 	namespace, _, found := strings.Cut(key, "/")
 	if !found {
 		return true
 	}
-	if namespace != kubernetesLabelNamespace && namespace != k8sLabelNamespace &&
-		!strings.HasSuffix(namespace, "."+kubernetesLabelNamespace) && !strings.HasSuffix(namespace, "."+k8sLabelNamespace) {
+	if !isReservedNamespace(namespace) {
 		return true
 	}
-	if namespace == kubeletLabelNamespace || namespace == nodeLabelNamespace {
+	// kubelet compares by suffix, so a label under a sub-namespace of an allowed
+	// prefix is allowed too. Matching by equality here dropped legal labels
+	// silently — the operator sets one and it is simply not on the node.
+	if reservedNamespaceMatches(namespace, kubeletLabelNamespace) || reservedNamespaceMatches(namespace, nodeLabelNamespace) {
 		return true
 	}
 	_, allowed := kubeletAllowedLabels[key]
@@ -389,8 +406,13 @@ func renderUpdatePolicy(ng *v1.NodeGroup) internalv1alpha1.UpdatePolicy {
 	if ng.Spec.Disruptions == nil {
 		return policy
 	}
-	if ng.Spec.Disruptions.ApprovalMode != "" {
-		policy.Mode = string(ng.Spec.Disruptions.ApprovalMode)
+	// RollingUpdate is a NodeGroup mode with no counterpart on the node: an
+	// immutable node is replaced rather than updated in place, so the rolling
+	// is the cluster's business and the agent only ever sees Manual or
+	// Automatic. Passing it through renders a NodeConfig the API server
+	// rejects, and a node whose config is rejected never gets one at all.
+	if mode := ng.Spec.Disruptions.ApprovalMode; mode != "" && mode != v1.DisruptionApprovalModeRollingUpdate {
+		policy.Mode = string(mode)
 	}
 
 	var windows []v1.DisruptionWindow
