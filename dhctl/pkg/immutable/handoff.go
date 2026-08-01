@@ -19,8 +19,10 @@ import (
 	"crypto/rand"
 	"crypto/tls"
 	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/base64"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
@@ -52,6 +54,13 @@ const (
 	// handoffCACommonName names the throwaway CA behind the endpoint's
 	// certificate.
 	handoffCACommonName = "dhctl-immutable-handoff-ca"
+
+	// clusterAdminCommonName and clusterAdminOrganization are what the node
+	// signs the installer's request as: the same identity kubeadm gives its
+	// admin.conf, so the certificate carries cluster-admin through the usual
+	// group binding rather than anything special to this path.
+	clusterAdminCommonName   = "kubernetes-admin"
+	clusterAdminOrganization = "system:masters"
 
 	// handoffTokenBytes is the size of the bearer token that authorises the one
 	// collection.
@@ -97,6 +106,12 @@ type HandoffMaterial struct {
 	CACertPEM     string `json:"caCert"`
 	ServerCertPEM string `json:"serverCert"`
 	ServerKeyPEM  string `json:"serverKey"`
+	// ClientCSRPEM is the request the node signs with the cluster CA, and
+	// ClientKeyPEM the key it belongs to. The key never leaves the installer —
+	// which is what keeps the channel free of anything worth stealing: what
+	// travels back is a certificate, and a certificate is public.
+	ClientCSRPEM string `json:"clientCSR"`
+	ClientKeyPEM string `json:"clientKey"`
 }
 
 // Payload is the part of the material the node is given.
@@ -105,6 +120,7 @@ func (m HandoffMaterial) Payload() Handoff {
 		Token:      m.Token,
 		ServerCert: m.ServerCertPEM,
 		ServerKey:  m.ServerKeyPEM,
+		ClientCSR:  m.ClientCSRPEM,
 	}
 }
 
@@ -205,9 +221,31 @@ func NewHandoffMaterial(nodeName string) (*HandoffMaterial, error) {
 		return nil, fmt.Errorf("encode the handoff serving key: %w", err)
 	}
 
+	// The key the installer will talk to the cluster with. It stays here; only
+	// the request for a certificate travels to the node, and only a certificate
+	// comes back. Nothing in the channel is then worth stealing: whoever reads
+	// it gets a public certificate for a key they do not have.
+	clientKey, err := pkiutil.NewPrivateKey(constants.EncryptionAlgorithmECDSAP256)
+	if err != nil {
+		return nil, fmt.Errorf("generate the cluster client key: %w", err)
+	}
+	clientKeyPEM, err := keyutil.MarshalPrivateKeyToPEM(clientKey)
+	if err != nil {
+		return nil, fmt.Errorf("encode the cluster client key: %w", err)
+	}
+	csrDER, err := x509.CreateCertificateRequest(rand.Reader, &x509.CertificateRequest{
+		Subject: pkix.Name{CommonName: clusterAdminCommonName, Organization: []string{clusterAdminOrganization}},
+	}, clientKey)
+	if err != nil {
+		return nil, fmt.Errorf("build the cluster client certificate request: %w", err)
+	}
+	csrPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE REQUEST", Bytes: csrDER})
+
 	// caKey dies with this call: nothing above stores it, so the only thing
 	// that can ever be issued for this channel is the certificate just made.
 	return &HandoffMaterial{
+		ClientCSRPEM:  string(csrPEM),
+		ClientKeyPEM:  string(clientKeyPEM),
 		Token:         base64.RawURLEncoding.EncodeToString(token),
 		CACertPEM:     string(pkiutil.EncodeCertificate(caCert)),
 		ServerCertPEM: string(pkiutil.EncodeCertificate(serverCert)),

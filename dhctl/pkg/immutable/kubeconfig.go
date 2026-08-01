@@ -51,3 +51,42 @@ func RetargetKubeconfig(content []byte, server string) ([]byte, error) {
 
 	return out, nil
 }
+
+// WithClientKey pairs the document the node handed back with the private key it
+// was never given.
+//
+// The node signs a certificate for the installer's key and returns only that
+// certificate — public, and useless to anyone who intercepts it. The key stayed
+// here the whole time, so this is where the two halves meet and the result
+// becomes credentials.
+func WithClientKey(content []byte, clientKeyPEM string) ([]byte, error) {
+	if clientKeyPEM == "" {
+		return nil, fmt.Errorf("complete the admin kubeconfig: the installer's client key is empty")
+	}
+
+	kubeconfig, err := clientcmd.Load(content)
+	if err != nil {
+		return nil, fmt.Errorf("parse the collected admin kubeconfig: %w", err)
+	}
+	if len(kubeconfig.AuthInfos) == 0 {
+		return nil, fmt.Errorf("the collected admin kubeconfig names no user")
+	}
+
+	for _, authInfo := range kubeconfig.AuthInfos {
+		if len(authInfo.ClientCertificateData) == 0 {
+			return nil, fmt.Errorf("the collected admin kubeconfig carries no client certificate")
+		}
+		// A node that returned a key would mean the channel carried a secret
+		// after all; refuse rather than quietly use it.
+		if len(authInfo.ClientKeyData) != 0 {
+			return nil, fmt.Errorf("the node returned a private key, which this channel must never carry")
+		}
+		authInfo.ClientKeyData = []byte(clientKeyPEM)
+	}
+
+	out, err := clientcmd.Write(*kubeconfig)
+	if err != nil {
+		return nil, fmt.Errorf("serialize the admin kubeconfig: %w", err)
+	}
+	return out, nil
+}

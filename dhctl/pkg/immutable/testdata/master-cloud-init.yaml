@@ -82,6 +82,7 @@ write_files:
         diskSelector:
           size: <=30Gi
       handoff:
+        clientCSR: <installer certificate request>
         serverCert: <handoff server certificate>
         serverKey: <handoff server key>
         token: <handoff token>

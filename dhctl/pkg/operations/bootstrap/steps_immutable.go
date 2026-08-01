@@ -125,7 +125,21 @@ func (b *ClusterBootstrapper) connectToImmutableMaster(ctx context.Context, bctx
 		return err
 	}
 
-	content, err := immutable.RetargetKubeconfig(kubeconfig, server)
+	// The node returned a certificate, not credentials. They become credentials
+	// here, where the key has been all along.
+	material, err := immutable.LoadHandoffMaterial(ctx, bctx.stateCache)
+	if err != nil {
+		return err
+	}
+	if material == nil {
+		return fmt.Errorf("the installer's client key is missing from the state cache: rerun the bootstrap so the BaseInfra phase regenerates the master payload")
+	}
+	complete, err := immutable.WithClientKey(kubeconfig, material.ClientKeyPEM)
+	if err != nil {
+		return err
+	}
+
+	content, err := immutable.RetargetKubeconfig(complete, server)
 	if err != nil {
 		return err
 	}

@@ -59,6 +59,9 @@ func TestBuildCloudConfigGolden(t *testing.T) {
 		Token:      "<handoff token>",
 		ServerCert: "<handoff server certificate>",
 		ServerKey:  "<handoff server key>",
+		// Public by design: this is the request, not the key. It is redacted
+		// only to keep the golden stable across runs.
+		ClientCSR: "<installer certificate request>",
 	}
 
 	cloudConfig, err := BuildCloudConfig(nodeConfig, controlPlaneConfig)

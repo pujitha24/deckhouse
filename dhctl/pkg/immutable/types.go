@@ -255,4 +255,10 @@ type Handoff struct {
 	Token      string `json:"token"`
 	ServerCert string `json:"serverCert"`
 	ServerKey  string `json:"serverKey"`
+	// ClientCSR is the installer's request for a cluster client certificate.
+	// The node signs it with the cluster CA it generates, so what comes back
+	// over the channel is a certificate — public — while the key it belongs to
+	// never leaves the installer. That is what keeps the channel free of
+	// anything worth stealing.
+	ClientCSR string `json:"clientCSR"`
 }
