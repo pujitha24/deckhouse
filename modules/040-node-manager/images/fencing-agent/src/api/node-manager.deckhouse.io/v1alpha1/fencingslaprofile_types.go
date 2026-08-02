@@ -25,7 +25,8 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
-// +kubebuilder:validation:Pattern=`^[1-9][0-9]*(ms|s|m|h)$`
+
+// +kubebuilder:validation:Pattern=`^[0-9]+(\.[0-9]+)?(ms|s|m)$`
 type Duration string
 
 func (d Duration) Parse() (time.Duration, error) {
@@ -54,53 +55,67 @@ type FencingSLAProfileMemberlist struct {
 	// +kubebuilder:validation:Minimum=1
 	SuspicionMaxTimeoutMult int32 `json:"suspicionMaxTimeoutMult"`
 	// +kubebuilder:validation:Minimum=1
-	AwarenessMaxMultiplier int32 `json:"awarenessMaxMultiplier"`
+	IndirectChecks int32 `json:"indirectChecks"`
 	// +kubebuilder:validation:Minimum=1
-	IndirectChecks int32    `json:"indirectChecks"`
-	GossipInterval Duration `json:"gossipInterval"`
+	AwarenessMaxMultiplier int32    `json:"awarenessMaxMultiplier"`
+	GossipInterval         Duration `json:"gossipInterval"`
 	// +kubebuilder:validation:Minimum=1
 	RetransmitMult      int32    `json:"retransmitMult"`
 	GossipToTheDeadTime Duration `json:"gossipToTheDeadTime"`
 }
 
+// FencingSLAProfileFallback covers the isolated-node path: how often the node
+// proves it is alive through the Kubernetes API, and how long that proof holds.
 type FencingSLAProfileFallback struct {
 	// Heartbeat is how often the agent refreshes status.fallback. Must be well below TTL.
 	Heartbeat Duration `json:"heartbeat"`
-	// APITimeout bounds the Kubernetes API reachability probe. Keep it below TTL so the
-	// probe cannot outlive the freshness it is meant to establish.
-	APITimeout Duration `json:"apiTimeout"`
 	// TTL is read by fencing-controller: while the heartbeat is newer than TTL, eviction is blocked.
 	TTL Duration `json:"ttl"`
+	// KubernetesAPITimeout bounds the API reachability probe. Keep it below TTL so the
+	// probe cannot outlive the freshness it is meant to establish.
+	KubernetesAPITimeout Duration `json:"kubernetesAPITimeout"`
 }
 
+// FencingSLAProfileRejoin bounds the exponential backoff of memberlist.Join retries.
 type FencingSLAProfileRejoin struct {
 	Interval    Duration `json:"interval"`
 	MaxInterval Duration `json:"maxInterval"`
 }
 
-type FencingSLAProfileWatchdog struct {
-	FeedInterval Duration `json:"feedInterval"`
-	// +kubebuilder:validation:Pattern=`^[1-9][0-9]*(s|m|h)$`
-	Timeout Duration `json:"timeout"`
-}
-
+// FencingSLAProfileEvacuation is read by fencing-controller, not by the agent.
 type FencingSLAProfileEvacuation struct {
+	// Delay is counted from status.failed.detectedAt.
 	Delay Duration `json:"delay"`
 }
 
+// FencingSLAProfileWatchdog drives the local deadman timer.
+type FencingSLAProfileWatchdog struct {
+	// FeedInterval must be a small fraction of Timeout, so a single late tick cannot expire it.
+	FeedInterval Duration `json:"feedInterval"`
+	// Timeout is the time from the last feed to the kernel panic.
+	Timeout Duration `json:"timeout"`
+}
+
+
 type FencingSLAProfileSpec struct {
-	Memberlist FencingSLAProfileMemberlist `json:"memberlist"`
-	Fallback   FencingSLAProfileFallback   `json:"fallback"`
-	Rejoin     FencingSLAProfileRejoin     `json:"rejoin"`
-	Watchdog   FencingSLAProfileWatchdog   `json:"watchdog"`
-	Evacuation FencingSLAProfileEvacuation `json:"evacuation"`
+	ReactionGoal          string                      `json:"reactionGoal"`
+	DetectionWindowTarget string                      `json:"detectionWindowTarget"`
+	Memberlist            FencingSLAProfileMemberlist `json:"memberlist"`
+	Fallback              FencingSLAProfileFallback   `json:"fallback"`
+	Rejoin                FencingSLAProfileRejoin     `json:"rejoin"`
+	Evacuation            FencingSLAProfileEvacuation `json:"evacuation"`
+	Watchdog              FencingSLAProfileWatchdog   `json:"watchdog"`
 }
 
 // +kubebuilder:object:root=true
-// +kubebuilder:resource:scope=Cluster
-// +kubebuilder:printcolumn:name=ProbeInterval,type=string,JSONPath=`.spec.memberlist.probeInterval`
-// +kubebuilder:printcolumn:name=WatchdogTimeout,type=string,JSONPath=`.spec.watchdog.timeout`
+// +kubebuilder:resource:scope=Cluster,shortName=fsp
+// +kubebuilder:printcolumn:name=Goal,type=string,JSONPath=`.spec.reactionGoal`
+// +kubebuilder:printcolumn:name=Detection,type=string,JSONPath=`.spec.detectionWindowTarget`
+// +kubebuilder:printcolumn:name=Probe,type=string,JSONPath=`.spec.memberlist.probeInterval`
+// +kubebuilder:printcolumn:name=FallbackTTL,type=string,JSONPath=`.spec.fallback.ttl`
 // +kubebuilder:printcolumn:name=EvacuationDelay,type=string,JSONPath=`.spec.evacuation.delay`
+// +kubebuilder:printcolumn:name=Rejoin,type=string,JSONPath=`.spec.rejoin.interval`
+// +kubebuilder:printcolumn:name=Watchdog,type=string,JSONPath=`.spec.watchdog.timeout`
 type FencingSLAProfile struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
