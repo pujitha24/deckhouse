@@ -74,15 +74,18 @@ type NodeSpec struct {
 // Disk picks one whole block device, either by path or by attributes. The same
 // shape names the system disk in NodeConfig and the control-plane state disk in
 // ControlPlaneConfig.
+// Disk names one disk of the master. An empty Disk is meaningful: it tells the
+// node to take the single blank disk it finds, which is how the control-plane
+// disk is chosen.
 type Disk struct {
 	Device       string        `json:"device,omitempty"`
 	DiskSelector *DiskSelector `json:"diskSelector,omitempty"`
 	Wipe         bool          `json:"wipe,omitempty"`
 }
 
-// DiskSelector matches a disk by attributes. Only Size is used here: dhctl
-// builds the payload before the VM exists, so no serial or device path is known
-// yet.
+// DiskSelector matches a disk by attributes. Only Size is here because it is
+// the only attribute the installer knows before the VM exists — serials and
+// device paths come into being with the disks themselves.
 type DiskSelector struct {
 	Size string `json:"size,omitempty"`
 }

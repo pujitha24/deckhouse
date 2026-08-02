@@ -22,7 +22,7 @@ import (
 	"strconv"
 	"strings"
 
-	"k8s.io/apimachinery/pkg/api/resource"
+
 
 	dhlog "github.com/deckhouse/lib-dhctl/pkg/logger"
 
@@ -200,35 +200,29 @@ func BuildNodeConfig(ctx context.Context, in NodeConfigInput) (*NodeConfig, erro
 // It doubles as the preflight check for the master's disk configuration: it
 // fails when the etcd disk is missing or not smaller than the root disk,
 // because the selectors cannot tell the disks apart in either case.
+// MasterDisks returns how the first master finds its two disks: it does not.
+//
+// Both are empty, and that is the whole point — the node tells them apart by
+// what is on them, the same way bashible does when it looks for the data
+// device (005_integrate_kubernetes_data_device):
+//
+//   - the system disk is the one already carrying our BOOT/CONFIG/DATA layout,
+//     which a cloud image brings with it; failing that, the first real disk;
+//   - the control-plane disk is the one blank disk. A disk with nothing on it
+//     is a disk nothing is lost by formatting, and a node that finds two of
+//     them refuses to guess.
+//
+// Sizes are not used at all. They were, and it cost a rule that the etcd disk
+// must be smaller than the root one — plus a selector that also matched the
+// cloud-init image, which is precisely the disk that must never be formatted.
+//
+// The sizes are still validated: a master without a separate etcd disk is a
+// configuration error worth catching in the installer rather than at boot.
 func MasterDisks(metaConfig *config.MetaConfig) (Disk, Disk, error) {
-	rootSize, etcdSize, err := masterDiskSizes(metaConfig)
-	if err != nil {
+	if _, _, err := masterDiskSizes(metaConfig); err != nil {
 		return Disk{}, Disk{}, err
 	}
-
-	root, err := resource.ParseQuantity(rootSize)
-	if err != nil {
-		return Disk{}, Disk{}, fmt.Errorf("parse masterNodeGroup.instanceClass.rootDisk.size %q: %w", rootSize, err)
-	}
-	etcd, err := resource.ParseQuantity(etcdSize)
-	if err != nil {
-		return Disk{}, Disk{}, fmt.Errorf("parse masterNodeGroup.instanceClass.etcdDisk.size %q: %w", etcdSize, err)
-	}
-
-	if etcd.Cmp(root) >= 0 {
-		return Disk{}, Disk{}, fmt.Errorf(
-			"masterNodeGroup.instanceClass.etcdDisk.size (%s) must be smaller than rootDisk.size (%s): "+
-				"an immutable master picks its disks by size before the VM exists, and disks of the same or inverted size cannot be told apart",
-			etcdSize, rootSize,
-		)
-	}
-
-	midpoint := resource.NewQuantity((root.Value()+etcd.Value())/2, resource.BinarySI).String()
-
-	systemDisk := Disk{DiskSelector: &DiskSelector{Size: ">=" + midpoint}}
-	controlPlaneDisk := Disk{DiskSelector: &DiskSelector{Size: "<=" + midpoint}}
-
-	return systemDisk, controlPlaneDisk, nil
+	return Disk{}, Disk{}, nil
 }
 
 func masterDiskSizes(metaConfig *config.MetaConfig) (string, string, error) {

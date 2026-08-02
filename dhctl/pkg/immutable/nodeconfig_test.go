@@ -97,52 +97,20 @@ func testMetaConfig(t *testing.T, rootDiskSize, etcdDiskSize string) *config.Met
 	return metaConfig
 }
 
-func TestMasterDisks(t *testing.T) {
-	tests := []struct {
-		name             string
-		rootDiskSize     string
-		etcdDiskSize     string
-		wantSystemSize   string
-		wantCPDiskSize   string
-		wantErrSubstring string
-	}{
-		{
-			name:           "root larger than etcd",
-			rootDiskSize:   "50Gi",
-			etcdDiskSize:   "10Gi",
-			wantSystemSize: ">=30Gi",
-			wantCPDiskSize: "<=30Gi",
-		},
-		{
-			name:             "equal sizes cannot be told apart",
-			rootDiskSize:     "20Gi",
-			etcdDiskSize:     "20Gi",
-			wantErrSubstring: "must be smaller than rootDisk.size",
-		},
-		{
-			name:             "etcd larger than root",
-			rootDiskSize:     "10Gi",
-			etcdDiskSize:     "20Gi",
-			wantErrSubstring: "must be smaller than rootDisk.size",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			metaConfig := testMetaConfig(t, tt.rootDiskSize, tt.etcdDiskSize)
-
-			systemDisk, controlPlaneDisk, err := MasterDisks(metaConfig)
-			if tt.wantErrSubstring != "" {
-				require.Error(t, err)
-				require.Contains(t, err.Error(), tt.wantErrSubstring)
-				return
-			}
-
+// Neither disk is selected by the installer: the node tells them apart by what
+// is on them. Sizes take no part, so the pair that used to be rejected — two
+// disks of one size — is now as valid as any other.
+func TestMasterDisksNameNothing(t *testing.T) {
+	for _, sizes := range []struct{ root, etcd string }{
+		{"50Gi", "10Gi"},
+		{"20Gi", "20Gi"},
+		{"10Gi", "20Gi"},
+	} {
+		t.Run(sizes.root+"/"+sizes.etcd, func(t *testing.T) {
+			systemDisk, controlPlaneDisk, err := MasterDisks(testMetaConfig(t, sizes.root, sizes.etcd))
 			require.NoError(t, err)
-			require.NotNil(t, systemDisk.DiskSelector)
-			require.NotNil(t, controlPlaneDisk.DiskSelector)
-			require.Equal(t, tt.wantSystemSize, systemDisk.DiskSelector.Size)
-			require.Equal(t, tt.wantCPDiskSize, controlPlaneDisk.DiskSelector.Size)
+			require.Equal(t, Disk{}, systemDisk)
+			require.Equal(t, Disk{}, controlPlaneDisk)
 		})
 	}
 }

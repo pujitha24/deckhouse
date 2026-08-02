@@ -56,9 +56,7 @@ write_files:
         auth: dXNlcjpwYXNzd29yZA==
         path: /sys/deckhouse-oss
         scheme: HTTPS
-      storage:
-        diskSelector:
-          size: '>=30Gi'
+      storage: {}
       updatePolicy:
         mode: Automatic
         window: {}
@@ -78,9 +76,7 @@ write_files:
         podSubnetCIDR: 10.222.0.0/16
         podSubnetNodeCIDRPrefix: "24"
         serviceSubnetCIDR: 10.223.0.0/16
-      disk:
-        diskSelector:
-          size: <=30Gi
+      disk: {}
       handoff:
         clientCSR: <installer certificate request>
         serverCert: <handoff server certificate>
