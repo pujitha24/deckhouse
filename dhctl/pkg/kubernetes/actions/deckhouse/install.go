@@ -576,58 +576,31 @@ func getInstallDataTasks(kubeCl *client.KubernetesClient, data map[string]string
 
 func getRegistryConfigTasks(ctx context.Context, kubeCl *client.KubernetesClient, cfg registry.Config) ([]actions.ManifestTask, error) {
 	tasks := []actions.ManifestTask{}
-	deckhouseRegistrySecretData, err := cfg.
-		Manifest().
-		DeckhouseRegistrySecretData(
-			func() (registry.PKI, error) {
-				return registry.GetPKI(ctx, kubeCl)
-			},
-		)
+
+	// The registry orchestrator hook deletes the one-time PKI secret once the registry
+	// reports Ready. A bootstrap retry after that point can no longer fetch it, but it
+	// also doesn't need to: the secrets derived from it were already created.
+	deckhouseRegistrySecretExists, err := secretExists(ctx, kubeCl, "deckhouse-registry")
 	if err != nil {
-		return nil, fmt.Errorf("create deckhouse registry secret data: %w", err)
+		return nil, fmt.Errorf("check deckhouse registry secret: %w", err)
 	}
 
-	tasks = append(tasks, actions.ManifestTask{
-		Name: `Secret "deckhouse-registry"`,
-		Manifest: func() any {
-			return manifests.DeckhouseRegistrySecret(deckhouseRegistrySecretData)
-		},
-		CreateFunc: func(ctx context.Context, manifest any) error {
-			_, err = kubeCl.
-				CoreV1().Secrets("d8-system").
-				Create(ctx, manifest.(*apiv1.Secret), metav1.CreateOptions{})
+	if !deckhouseRegistrySecretExists {
+		deckhouseRegistrySecretData, err := cfg.
+			Manifest().
+			DeckhouseRegistrySecretData(
+				func() (registry.PKI, error) {
+					return registry.GetPKI(ctx, kubeCl)
+				},
+			)
+		if err != nil {
+			return nil, fmt.Errorf("create deckhouse registry secret data: %w", err)
+		}
 
-			if err != nil && apierrors.IsAlreadyExists(err) {
-				dhlog.FromContext(ctx).InfoContext(ctx, "Already exists. Skip!")
-				return nil
-			}
-			return err
-		},
-		UpdateFunc: func(ctx context.Context, manifest any) error {
-			_, err := kubeCl.
-				CoreV1().Secrets("d8-system").
-				Update(ctx, manifest.(*apiv1.Secret), metav1.UpdateOptions{})
-
-			return err
-		},
-	})
-
-	isExist, registryBashibleConfigSecretData, err := cfg.
-		Manifest().
-		RegistryBashibleConfigSecretData(
-			func() (registry.PKI, error) {
-				return registry.GetPKI(ctx, kubeCl)
-			},
-		)
-	if err != nil {
-		return nil, fmt.Errorf("create registry bashible config secret data: %w", err)
-	}
-
-	if isExist {
 		tasks = append(tasks, actions.ManifestTask{
-			Name: `Secret "registry-bashible-config"`,
+			Name: `Secret "deckhouse-registry"`,
 			Manifest: func() any {
-				return manifests.RegistryBashibleConfigSecret(registryBashibleConfigSecretData)
+				return manifests.DeckhouseRegistrySecret(deckhouseRegistrySecretData)
 			},
 			CreateFunc: func(ctx context.Context, manifest any) error {
 				_, err = kubeCl.
@@ -638,7 +611,6 @@ func getRegistryConfigTasks(ctx context.Context, kubeCl *client.KubernetesClient
 					dhlog.FromContext(ctx).InfoContext(ctx, "Already exists. Skip!")
 					return nil
 				}
-
 				return err
 			},
 			UpdateFunc: func(ctx context.Context, manifest any) error {
@@ -651,7 +623,67 @@ func getRegistryConfigTasks(ctx context.Context, kubeCl *client.KubernetesClient
 		})
 	}
 
+	registryBashibleConfigSecretExists, err := secretExists(ctx, kubeCl, "registry-bashible-config")
+	if err != nil {
+		return nil, fmt.Errorf("check registry bashible config secret: %w", err)
+	}
+
+	if !registryBashibleConfigSecretExists {
+		isExist, registryBashibleConfigSecretData, err := cfg.
+			Manifest().
+			RegistryBashibleConfigSecretData(
+				func() (registry.PKI, error) {
+					return registry.GetPKI(ctx, kubeCl)
+				},
+			)
+		if err != nil {
+			return nil, fmt.Errorf("create registry bashible config secret data: %w", err)
+		}
+
+		if isExist {
+			tasks = append(tasks, actions.ManifestTask{
+				Name: `Secret "registry-bashible-config"`,
+				Manifest: func() any {
+					return manifests.RegistryBashibleConfigSecret(registryBashibleConfigSecretData)
+				},
+				CreateFunc: func(ctx context.Context, manifest any) error {
+					_, err = kubeCl.
+						CoreV1().Secrets("d8-system").
+						Create(ctx, manifest.(*apiv1.Secret), metav1.CreateOptions{})
+
+					if err != nil && apierrors.IsAlreadyExists(err) {
+						dhlog.FromContext(ctx).InfoContext(ctx, "Already exists. Skip!")
+						return nil
+					}
+
+					return err
+				},
+				UpdateFunc: func(ctx context.Context, manifest any) error {
+					_, err := kubeCl.
+						CoreV1().Secrets("d8-system").
+						Update(ctx, manifest.(*apiv1.Secret), metav1.UpdateOptions{})
+
+					return err
+				},
+			})
+		}
+	}
+
 	return tasks, nil
+}
+
+// secretExists reports whether a Secret already exists in the d8-system namespace, so
+// callers can skip work that depends on transient data (e.g. one-time PKI secrets) that
+// is no longer available once the resource it produces has already been created.
+func secretExists(ctx context.Context, kubeCl *client.KubernetesClient, name string) (bool, error) {
+	_, err := kubeCl.CoreV1().Secrets("d8-system").Get(ctx, name, metav1.GetOptions{})
+	if err == nil {
+		return true, nil
+	}
+	if apierrors.IsNotFound(err) {
+		return false, nil
+	}
+	return false, err
 }
 
 func getTFStateTasks(kubeCl *client.KubernetesClient, cfg *config.DeckhouseInstaller) []actions.ManifestTask {

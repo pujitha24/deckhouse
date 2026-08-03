@@ -205,6 +205,44 @@ func TestDeckhouseInstall(t *testing.T) {
 	}
 }
 
+func TestDeckhouseInstallRetryAfterRegistryInitSecretRemoved(t *testing.T) {
+	ctx := t.Context()
+	err := os.Setenv("DHCTL_TEST", "yes")
+	require.NoError(t, err)
+	err = os.Setenv("DHCTL_TEST_VERSION_TAG", "1.54.1")
+	require.NoError(t, err)
+	defer func() {
+		os.Unsetenv("DHCTL_TEST")
+		os.Unsetenv("DHCTL_TEST_VERSION_TAG")
+	}()
+
+	fakeClient := client.NewFakeKubernetesClient()
+
+	err = registry_mocks.CreatePKISecret(ctx, fakeClient)
+	require.NoError(t, err)
+
+	cfg := &config.DeckhouseInstaller{
+		Registry: registry_mocks.ConfigBuilder(
+			registry_mocks.WithModeUnmanaged(),
+		),
+	}
+
+	_, err = CreateDeckhouseManifests(ctx, fakeClient, cfg, func() error {
+		return nil
+	})
+	require.NoError(t, err)
+
+	// The registry orchestrator hook removes the one-time PKI secret once the
+	// registry reports Ready, so a retried bootstrap run must not depend on it.
+	err = fakeClient.CoreV1().Secrets("d8-system").Delete(ctx, "registry-init", metav1.DeleteOptions{})
+	require.NoError(t, err)
+
+	_, err = CreateDeckhouseManifests(ctx, fakeClient, cfg, func() error {
+		return nil
+	})
+	require.NoError(t, err)
+}
+
 func TestDeckhouseInstallWithDevBranch(t *testing.T) {
 	ctx := t.Context()
 	err := os.Setenv("DHCTL_TEST", "yes")
