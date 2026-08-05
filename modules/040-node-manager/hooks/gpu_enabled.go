@@ -126,6 +126,8 @@ func setGPULabel(_ context.Context, input *go_hook.HookInput) error {
 		}
 	}
 
+	gpuNodeGroupNames := map[string]struct{}{}
+
 	for _, ngSnapshot := range ngs {
 		var ng nodeGroupInfo
 		err := ngSnapshot.UnmarshalTo(&ng)
@@ -135,6 +137,7 @@ func setGPULabel(_ context.Context, input *go_hook.HookInput) error {
 		if ng.GpuSharing == "" {
 			continue
 		}
+		gpuNodeGroupNames[ng.Name] = struct{}{}
 		if val, ok := resolvedNames[ng.Name]; ok {
 			ng.ResolvedMIGName = val
 		}
@@ -198,5 +201,42 @@ func setGPULabel(_ context.Context, input *go_hook.HookInput) error {
 			input.PatchCollector.PatchWithMerge(metadata, "v1", "Node", "", node.Name)
 		}
 	}
+
+	// Clean up GPU labels left over on nodes that no longer belong to a GPU nodegroup
+	// (e.g. the node was moved to a regular nodegroup or the nodegroup's GPU spec was removed).
+	for _, nodeSnapshot := range nodes {
+		var node NodeInfo
+		err := nodeSnapshot.UnmarshalTo(&node)
+		if err != nil {
+			return err
+		}
+
+		if ngName, ok := node.Labels[ngLabel]; ok {
+			if _, isGPUNodeGroup := gpuNodeGroupNames[ngName]; isGPUNodeGroup {
+				continue
+			}
+		}
+
+		labelsToRemove := map[string]interface{}{}
+		for _, label := range []string{gpuEnabledLabel, devicePluginLabel, migConfigLabel} {
+			if _, ok := node.Labels[label]; ok {
+				labelsToRemove[label] = nil
+			}
+		}
+		if len(labelsToRemove) == 0 {
+			continue
+		}
+
+		input.Logger.Info("Removing stale GPU labels from node %s: it no longer belongs to a GPU nodegroup", node.Name)
+
+		metadata := map[string]interface{}{
+			"metadata": map[string]interface{}{
+				"labels": labelsToRemove,
+			},
+		}
+
+		input.PatchCollector.PatchWithMerge(metadata, "v1", "Node", "", node.Name)
+	}
+
 	return nil
 }

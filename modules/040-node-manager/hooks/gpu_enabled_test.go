@@ -84,6 +84,20 @@ metadata:
 spec:
   providerID: static:///22d24f3645e885e88693cb5b235977af5acdc6c21efac9c075b56b618a1b537
 `
+	migratedNodeYaml = `
+---
+apiVersion: v1
+kind: Node
+metadata:
+  name: worker-migrated
+  labels:
+    node.deckhouse.io/group: worker
+    node.deckhouse.io/gpu: ""
+    node.deckhouse.io/device-gpu.config: time-slicing
+    nvidia.com/mig.config: all-1g.5gb
+spec:
+  providerID: static:///22d24f3645e885e88693cb5b235977af5acdc6c21efac9c075b56b618a1b539
+`
 	ngsYaml = `
 ---
 apiVersion: deckhouse.io/v1
@@ -272,6 +286,28 @@ var _ = Describe("Modules :: nodeManager :: hooks :: gpu_enabled ::", func() {
 			Expect(workerGpuCustom.Field("metadata")).To(MatchJSON(expectedWorkerGpuCustomLabels))
 			Expect(worker.Field("metadata")).To(MatchJSON(expectedWorkerLabels))
 
+		})
+	})
+
+	Context("Node migrated from a GPU nodegroup to a regular nodegroup", func() {
+		BeforeEach(func() {
+			f.KubeStateSet(ngsYaml + migratedNodeYaml)
+			f.BindingContexts.Set(f.GenerateAfterHelmContext())
+			f.RunGoHook()
+		})
+
+		It("Must be executed successfully and remove stale GPU labels", func() {
+			Expect(f).To(ExecuteSuccessfully())
+			expectedMigratedNodeLabels := `
+        {
+            "labels": {
+              "node.deckhouse.io/group": "worker"
+            },
+            "name": "worker-migrated"
+        }
+      `
+			migratedNode := f.KubernetesGlobalResource("Node", "worker-migrated")
+			Expect(migratedNode.Field("metadata")).To(MatchJSON(expectedMigratedNodeLabels))
 		})
 	})
 
