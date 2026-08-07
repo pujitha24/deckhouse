@@ -8,7 +8,7 @@
         unless
         kube_node_role{role="master"}
         * on(node) group_left() (
-          (kube_pod_status_ready{condition="true"} == 1)
+          (topk by (pod, namespace) (1, kube_pod_status_ready{condition="true"} == 1))
           * on (pod, namespace) group_right()
           kube_controller_pod{
             controller_type="DaemonSet",

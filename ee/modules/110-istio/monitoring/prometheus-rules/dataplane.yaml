@@ -27,7 +27,7 @@
             istio_build{ component="pilot" }
             * on (pod,namespace) group_left(revision)
             (
-              label_replace(kube_pod_labels, "revision", "$1", "label_istio_io_rev", "(.+)")
+              topk by (pod, namespace) (1, label_replace(kube_pod_labels, "revision", "$1", "label_istio_io_rev", "(.+)"))
             )
           )
         )
@@ -70,7 +70,7 @@
             istio_build{ component="pilot" }
             * on (pod,namespace) group_left(revision)
             (
-              label_replace(kube_pod_labels, "revision", "$1", "label_istio_io_rev", "(.+)")
+              topk by (pod, namespace) (1, label_replace(kube_pod_labels, "revision", "$1", "label_istio_io_rev", "(.+)"))
             )
           )
         )
